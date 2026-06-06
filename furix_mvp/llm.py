@@ -126,11 +126,17 @@ def complete_json(system: str, user: str, *, max_tokens: Optional[int] = None,
 def health() -> dict:
     if config.MOCK_LLM:
         return {"reachable": True, "mode": "mock", "model": config.GEMMA_MODEL}
+    info = {"mode": "live", "model": config.GEMMA_MODEL, "endpoint": config.GEMMA_BASE_URL}
+    # Probe with a tiny REAL chat completion — the exact capability the agents use.
+    # More reliable than /v1/models, which some Ollama/vLLM setups return as null.
     try:
-        models = _client.models.list()
-        ids = [m.id for m in models.data][:20]
-        return {"reachable": True, "mode": "live", "model": config.GEMMA_MODEL,
-                "endpoint": config.GEMMA_BASE_URL, "available": ids}
+        resp = _client.chat.completions.create(
+            model=config.GEMMA_MODEL,
+            messages=[{"role": "user", "content": "ping"}],
+            max_tokens=1, temperature=0)
+        info["reachable"] = True
+        info["sample"] = (resp.choices[0].message.content or "")[:40]
     except Exception as e:  # noqa: BLE001
-        return {"reachable": False, "mode": "live", "model": config.GEMMA_MODEL,
-                "endpoint": config.GEMMA_BASE_URL, "error": str(e)}
+        info["reachable"] = False
+        info["error"] = str(e)
+    return info
