@@ -1,10 +1,14 @@
 # ── Furix Gemma MVP — CORE runtime (light, always required) ──────────────────
-# This is all you need to run the appliance against Gemma (RAG off).
-fastapi==0.115.6
-uvicorn[standard]==0.34.0
-pydantic==2.10.4
-python-dotenv==1.0.1
-openai==1.59.6            # OpenAI-compatible client → in-house Gemma (Ollama/vLLM /v1)
+# Versions use floors (not hard pins) so pip installs wheels that match YOUR
+# Python — including very new ones like 3.14, where old pinned builds have no
+# wheel and fail to compile. All current releases work with this code
+# (pydantic v2 BaseModel, FastAPI, openai 1.x/2.x chat.completions).
+# Plain `uvicorn` (not [standard]) avoids compiling uvloop/httptools.
+fastapi>=0.110
+uvicorn>=0.27
+pydantic>=2.9
+python-dotenv>=1.0
+openai>=1.30
 
 # For the full RAG grounding path (RAG_ENABLED=1) install the extras separately:
 #   pip install -r requirements-rag.txt        (PostgreSQL + pgvector + SecureBERT)
