@@ -1,0 +1,18 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Secrets / local config (each machine makes its own from .env.example)
+.env
+
+# Runtime artifacts
+backups/
+bundles/
+vbundles/
+*.zip
+
+# Editor / OS / harness
+.claude/
+.DS_Store

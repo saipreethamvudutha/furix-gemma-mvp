@@ -1,0 +1,6 @@
+# ── RAG grounding extras (only needed when RAG_ENABLED=1) ────────────────────
+# Heavy (sentence-transformers pulls PyTorch). The app degrades gracefully to
+# static-map grounding without these, so skip them for a quick Gemma test.
+psycopg2-binary==2.9.10   # PostgreSQL + Apache AGE + pgvector
+pgvector==0.3.6
+sentence-transformers==3.3.1   # SecureBERT bi-encoder + cross-encoder reranker

@@ -1,0 +1,26 @@
+# CONTAINER C2 · VECTOR — log ingestion front door.
+# Accepts logs over HTTP and forwards them to the Kafka bus (C5) on the WARM
+# lane. In production you'd add syslog sources, parsers, and HOT/WARM/COLD
+# routing; this is the minimal "logs in → bus" path so the box is real.
+
+# Source: a simple HTTP endpoint other systems POST newline-delimited logs to.
+[sources.http_in]
+type = "http_server"
+address = "0.0.0.0:9000"
+decoding.codec = "bytes"
+
+# Wrap each event in the envelope the Normaliser (C6) expects.
+[transforms.envelope]
+type = "remap"
+inputs = ["http_in"]
+source = '''
+. = { "raw": string!(.message), "source": "vector", "lane": "raw.WARM" }
+'''
+
+# Sink: publish to the Kafka topic C6 consumes.
+[sinks.kafka_out]
+type = "kafka"
+inputs = ["envelope"]
+bootstrap_servers = "c5-kafka:9092"
+topic = "raw.WARM"
+encoding.codec = "json"

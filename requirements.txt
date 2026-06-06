@@ -1,0 +1,12 @@
+# ── Furix Gemma MVP — CORE runtime (light, always required) ──────────────────
+# This is all you need to run the appliance against Gemma (RAG off).
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+python-dotenv==1.0.1
+openai==1.59.6            # OpenAI-compatible client → in-house Gemma (Ollama/vLLM /v1)
+
+# For the full RAG grounding path (RAG_ENABLED=1) install the extras separately:
+#   pip install -r requirements-rag.txt        (PostgreSQL + pgvector + SecureBERT)
+# For the docker-compose deployment also:
+#   pip install -r requirements-deploy.txt     (Kafka / Valkey / ClickHouse clients)

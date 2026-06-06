@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Furix · AI Brain (Gemma) — MVP</title>
+<style>
+  :root{
+    --bg:#0b0f17; --panel:#121826; --panel2:#0f1521; --line:#1f2937;
+    --txt:#e5e9f0; --mut:#8b97ab; --acc:#4f8cff; --ok:#34d399; --warn:#fbbf24;
+    --crit:#f87171; --info:#60a5fa;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  header{display:flex;align-items:center;gap:14px;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--panel2);position:sticky;top:0;z-index:5}
+  header h1{font-size:16px;margin:0;font-weight:650;letter-spacing:.2px}
+  header h1 span{color:var(--acc)}
+  .badges{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+  .badge{font-size:11px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);background:#0d1320;color:var(--mut)}
+  .badge.ok{color:var(--ok);border-color:#14532d}
+  .badge.bad{color:var(--crit);border-color:#7f1d1d}
+  .wrap{display:grid;grid-template-columns:380px 1fr;gap:16px;padding:16px 20px;max-width:1500px;margin:0 auto}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+  .card h2{font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--mut);margin:0 0 10px}
+  label{font-size:12px;color:var(--mut);display:block;margin-bottom:5px}
+  select,textarea,button{font:inherit;color:var(--txt);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px 11px;width:100%}
+  textarea{min-height:230px;resize:vertical;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
+  button{cursor:pointer;background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600;margin-top:10px}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .row{display:flex;gap:8px;align-items:center}
+  .verdict{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
+  .stat{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px}
+  .stat .k{font-size:11px;color:var(--mut)}
+  .stat .v{font-size:18px;font-weight:700;margin-top:2px}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;text-transform:uppercase}
+  .sev-critical{background:#3b0d0d;color:var(--crit)} .sev-high{background:#3a1d05;color:#fb923c}
+  .sev-medium{background:#3a3408;color:var(--warn)} .sev-low{background:#0c2a4a;color:var(--info)}
+  .sev-informational{background:#0e2a1f;color:var(--ok)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  .chip{font-size:11px;background:#0d1320;border:1px solid var(--line);border-radius:6px;padding:2px 7px;color:#bcd0f0}
+  .agents{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-top:14px}
+  .agent{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .agent .top{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .agent .name{font-weight:650;font-size:13px}
+  .agent .meta{margin-left:auto;font-size:11px;color:var(--mut)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--ok)} .dot.bad{background:var(--crit)}
+  pre{margin:0;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px;overflow:auto;font-size:12px;max-height:280px;white-space:pre-wrap;word-break:break-word}
+  .muted{color:var(--mut)} .src{font-size:10px;padding:1px 6px;border-radius:5px;background:#0d1320;border:1px solid var(--line)}
+  .src.mock{color:var(--warn)} .src.fallback{color:var(--crit)} .src.llm{color:var(--ok)}
+  .report p{margin:6px 0} .report b{color:#cfe0ff}
+  .empty{color:var(--mut);text-align:center;padding:40px}
+  .err{color:var(--crit);font-size:12px;margin-top:6px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Furix <span>· AI Brain</span> — Gemma MVP</h1>
+  <div class="badges" id="badges"></div>
+</header>
+
+<div class="wrap">
+  <div>
+    <div class="card">
+      <h2>Input — Security Log</h2>
+      <label>Sample log</label>
+      <select id="sample"></select>
+      <label style="margin-top:10px">Raw log</label>
+      <textarea id="log" placeholder="Paste a raw security log/event..."></textarea>
+      <button id="run">▶ Analyze with 5 agents</button>
+      <div class="err" id="err"></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h2>Pipeline</h2>
+      <div class="muted" style="font-size:12.5px">
+        DAL strip → triage (Gemma) → RAG grounding → 5 agents (Gemma) → rehydrate → verdict.
+        The LLM only ever sees DAL placeholders.
+      </div>
+    </div>
+  </div>
+
+  <div id="out"><div class="card empty">Run an analysis to see verdict, RAG grounding, and all five agents.</div></div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const chips = a => (a||[]).map(x=>`<span class="chip">${esc(x)}</span>`).join("") || '<span class="muted">—</span>';
+
+async function loadHealth(){
+  const h = await (await fetch('/api/health')).json();
+  const b = $('#badges'); b.innerHTML = '';
+  const llm = h.llm;
+  b.insertAdjacentHTML('beforeend',
+    `<span class="badge ${llm.reachable?'ok':'bad'}">Gemma: ${esc(llm.mode)} · ${esc(llm.model)} ${llm.reachable?'●':'○'}</span>`);
+  b.insertAdjacentHTML('beforeend',
+    `<span class="badge ${h.rag.available?'ok':''}">RAG: ${h.rag.available?'live':'static'}</span>`);
+  b.insertAdjacentHTML('beforeend', `<span class="badge">store: ${esc(h.persistence)}</span>`);
+  b.insertAdjacentHTML('beforeend', `<span class="badge">agents: ${h.agents.length}/5</span>`);
+}
+
+async function loadSamples(){
+  const {samples} = await (await fetch('/api/samples')).json();
+  const sel = $('#sample'); sel.innerHTML='';
+  Object.keys(samples).forEach(k=>{
+    const o=document.createElement('option'); o.value=k; o.textContent=k; sel.appendChild(o);
+  });
+  sel.onchange=()=> $('#log').value = samples[sel.value];
+  if(sel.value){ $('#log').value = samples[sel.value]; }
+}
+
+const AGENTS = [
+  ['risk_scorer','Risk Scorer'], ['compliance_mapper','Compliance Mapper'],
+  ['remediation_generator','Remediation Generator'], ['anomaly_detector','Anomaly Detector'],
+  ['report_generator','Report Generator']
+];
+
+function renderReport(o){
+  const f=(k,t)=> o[k]?`<p><b>${t}:</b> ${esc(o[k])}</p>`:'';
+  return `<div class="report">${f('executive_summary','Executive')}${f('attack_narrative','Attack')}${f('business_impact','Impact')}${f('remediation_roadmap','Roadmap')}${f('compliance_posture','Compliance')}</div>`;
+}
+
+function renderAgent(name, label, res){
+  if(!res) return `<div class="agent"><div class="top"><span class="name">${label}</span><span class="meta muted">disabled</span></div></div>`;
+  const ok = res.ok; const o = res.output||{};
+  const body = name==='report_generator' && ok ? renderReport(o)
+    : `<pre>${esc(JSON.stringify(o,null,2))}</pre>`;
+  return `<div class="agent">
+    <div class="top"><span class="dot ${ok?'':'bad'}"></span><span class="name">${label}</span>
+      <span class="meta"><span class="src ${esc(res.source)}">${esc(res.source)}</span> · ${res.latency_ms}ms · ${res.completion_tokens||0}tok</span></div>
+    ${body}
+    ${res.error?`<div class="err">${esc(res.error)}</div>`:''}
+  </div>`;
+}
+
+function render(r){
+  const v=r.verdict, by=(r.agents||[]).reduce((m,a)=>(m[a.agent]=a,m),{});
+  const rag=r.rag||{};
+  $('#out').innerHTML = `
+    <div class="card">
+      <h2>Verdict · ${esc(r.finding_id)} · ${esc(r.log_type)} · ${r.total_latency_ms}ms</h2>
+      <div class="verdict">
+        <div class="stat"><div class="k">Severity</div><div class="v"><span class="pill sev-${esc(v.severity)}">${esc(v.severity)}</span></div></div>
+        <div class="stat"><div class="k">Risk score</div><div class="v">${v.risk_score}/100</div></div>
+        <div class="stat"><div class="k">Confidence</div><div class="v">${(v.confidence*100||0).toFixed(0)}%</div></div>
+        <div class="stat"><div class="k">Anomaly</div><div class="v">${v.is_anomaly?'⚠ yes':'no'}</div></div>
+        <div class="stat"><div class="k">DAL redactions</div><div class="v">${(r.dal&&r.dal.redacted_count)||0}</div></div>
+      </div>
+      <div style="margin-top:12px">
+        <label>CIS Controls</label>${chips(v.control_ids)}
+        <label style="margin-top:8px">NIST CSF 2.0</label>${chips(v.nist_subcategories)}
+        <label style="margin-top:8px">HIPAA §164</label>${chips(v.hipaa_sections)}
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <h2>RAG Grounding · ${rag.available?'pgvector + SecureBERT + AGE':'static map ('+esc(rag.reason||'')+')'}</h2>
+      ${(rag.snippets||[]).length? rag.snippets.map(s=>
+        `<div style="margin-bottom:6px"><span class="chip">${esc(s.control_id)}</span> <span class="muted">${esc(s.framework)} ${s.score!=null?'· '+s.score:''}</span><div style="font-size:12px;color:#bcd">${esc(s.content)}</div></div>`
+      ).join(''):'<div class="muted">No grounding snippets.</div>'}
+      ${(rag.graph_controls||[]).length?`<label style="margin-top:8px">Graph-expanded (AGE)</label>${chips(rag.graph_controls)}`:''}
+    </div>
+
+    <div class="agents">
+      ${AGENTS.map(([n,l])=>renderAgent(n,l,by[n])).join('')}
+    </div>`;
+}
+
+$('#run').onclick = async () => {
+  const log = $('#log').value.trim();
+  $('#err').textContent='';
+  if(!log){ $('#err').textContent='Paste or pick a log first.'; return; }
+  $('#run').disabled=true; $('#run').textContent='Analyzing…';
+  $('#out').innerHTML='<div class="card empty">Running DAL → triage → RAG → 5 agents…</div>';
+  try{
+    const r = await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({raw_log:log,log_type:$('#sample').value||'auto'})});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    render(await r.json());
+  }catch(e){ $('#err').textContent='Failed: '+e.message; $('#out').innerHTML='<div class="card empty">Analysis failed.</div>'; }
+  finally{ $('#run').disabled=false; $('#run').textContent='▶ Analyze with 5 agents'; }
+};
+
+loadHealth(); loadSamples();
+</script>
+</body>
+</html>

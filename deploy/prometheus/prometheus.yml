@@ -1,0 +1,12 @@
+# CONTAINER C12 · PROMETHEUS — scrape the appliance's metrics.
+# The Furix metrics registry (containers/c12_operations.py) exposes the real
+# Prometheus exposition format at /api/metrics on the dashboard. Prometheus
+# pulls it every 10s. Point Grafana at this Prometheus for dashboards.
+global:
+  scrape_interval: 10s
+
+scrape_configs:
+  - job_name: furix-appliance
+    metrics_path: /api/metrics
+    static_configs:
+      - targets: ["c11-dashboard:8080"]
