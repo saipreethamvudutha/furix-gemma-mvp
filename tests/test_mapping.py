@@ -56,9 +56,10 @@ def test_mapping_is_repeatable():
         assert again["hipaa_sections"] == first["hipaa_sections"]
 
 
-# ── Unknown event: nothing matches → needs_llm, but still no hallucinated map ─
-def test_novel_event_flags_llm_fallback():
-    finding = {"rule_controls": [], "candidate_controls": ["Control 8"]}
+# ── Unknown-but-suspicious: no rule match BUT a risk signal → needs_llm ──────
+def test_novel_suspicious_event_flags_llm_fallback():
+    finding = {"rule_controls": [], "candidate_controls": ["Control 8"],
+               "signals": {"malware": True}}          # risky but unmapped
     m = mapping.resolve(finding, ground={"available": False})
     assert m["needs_llm"] is True
     assert m["control_ids"] == []            # code refuses to guess
@@ -66,9 +67,22 @@ def test_novel_event_flags_llm_fallback():
     assert m["primary_tier"] is None
 
 
+# ── Benign event: no rule match AND no risk signals → suppressed, NO LLM ─────
+def test_benign_event_suppressed_without_llm():
+    finding = {"rule_controls": [], "candidate_controls": ["Control 8"],
+               "signals": {"successful_logins": True}, "intel": {"ioc_hits": []}}
+    m = mapping.resolve(finding, ground={"available": False})
+    assert m["needs_llm"] is False           # do NOT burn an LLM call on benign
+    assert m["control_ids"] == []            # no applicable control
+    assert m["authoritative"] is True
+    assert m["benign"] is True
+    assert m["primary_tier"] == mapping.TIER_BENIGN
+
+
 # ── LLM suggestion merge: validated + crosswalk-expanded + flagged for review ─
 def test_llm_suggestion_is_non_authoritative():
-    det = mapping.resolve({"rule_controls": []}, ground={"available": False})
+    det = mapping.resolve({"rule_controls": [], "signals": {"malware": True}},
+                          ground={"available": False})
     merged = mapping.merge_llm_suggestion(det, {"control_ids": ["Control 6", "BOGUS-99"]})
     assert merged["control_ids"] == ["Control 6"]   # BOGUS dropped by catalog validation
     assert merged["primary_tier"] == TIER_LLM

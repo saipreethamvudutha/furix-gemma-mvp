@@ -26,28 +26,39 @@ from . import c4_intel_sync as intel
 
 # ── Stage-3 grounding: keyword → candidate CIS control (closed catalog) ──────
 # This is the canonical home of the triage rules. C14 imports these too.
+#
+# ACCURACY NOTE: every short/ambiguous token is WORD-BOUNDARY anchored (\b...\b).
+# Bare substrings caused catastrophic false positives — e.g. "rce" matched
+# "souRCE"/"eventSouRCE", "c2" matched "eC2.amazonaws", "s3"/"bucket" fired
+# Control 3 on every S3 call including benign reads. Measure changes with
+# tests/eval/run_eval.py before/after editing this map.
 KW = {
-    "Control 1":  r"dhcp|rogue|unknown-mac|unauthorized device",
-    "Control 3":  r"s3|bucket|getsecretvalue|exfil|sensitive|download",
-    "Control 5":  r"useradd|net user|createuser|4720|4732|add member|provision\.user|account.created|backdoor",
-    "Control 6":  r"sudo|privilege|sebackup|escalat|4672|failed password|invalid user|4625|mfa|roles/owner|global admin",
-    "Control 7":  r"cve-|nmap|vuln|exploit",
-    "Control 8":  r"auditd|execve|4688|4698|integrity|checksum",
-    "Control 9":  r"wget|curl|c2|malicious-domain|phishing|\.ru\b",
-    "Control 10": r"mimikatz|beacon|cobalt|ransom|encrypt\.exe|payload|malware|powershell -enc",
-    "Control 12": r"firewall|ufw|asa|deny|vpn",
-    "Control 13": r"suricata|zeek|ids|ips|beacon|c2",
-    "Control 15": r"iam|cloudtrail|service account|gserviceaccount|console",
-    "Control 16": r"sql injection|modsecurity|waf|rce|xss",
+    "Control 1":  r"\bdhcp\b|\brogue\b|unknown[- ]?mac|unauthorized device|unknown client",
+    "Control 2":  r"\b7045\b|new service was installed|service installed|unauthorized software|unknown executable|installutil|new service",
+    "Control 3":  r"getsecretvalue|getsecret|\bexfil|exfiltrat|sensitive (data|file|employee)|secretsmanager|credential dump|sekurlsa",
+    "Control 4":  r"conditional access|legacy authentication|default password|certificate has expired|cert(ificate)? expired|misconfig|insecure configuration|policy.{0,20}disabled|disabled.{0,20}policy",
+    "Control 5":  r"\buseradd\b|net user .*\/add|createuser|create user|\b4720\b|\b4732\b|provision\.?user|add member to role|account created|\badduser\b|createserviceaccount|service account",
+    "Control 6":  r"\bsudo\b|privilege escalat|\bescalat|sebackup|\b4672\b|failed password|invalid user|\b4625\b|\b4732\b|\bmfa\b|mfaused|without mfa|mfa\.factor|conditional access|roles/owner|global admin|super admin(istrator)?|administratoraccess|administrator access|attachuserpolicy|localgroup administ",
+    "Control 7":  r"\bcve-\d|\bnmap\b|vulnerab|\bexploit|\bvuln\b",
+    "Control 8":  r"\bauditd\b|\bexecve\b|\b4688\b|\b4698\b|integrity (checksum|changed)|checksum changed|type=syscall|/etc/shadow|audit log",
+    "Control 9":  r"\bwget\b|\bcurl\b|malicious-domain|malware-c2|phishing|\.ru\b|data-exfil\.|payload\.(sh|ps1)",
+    "Control 10": r"mimikatz|\bbeacon\b|cobalt(strike)?|ransom|encrypt\.exe|powershell\s+-?enc|powershell.{0,20}-enc|\bmalware\b|/payload\b|payload\.(sh|ps1|exe)",
+    "Control 11": r"deletebucket|delete bucket|backup.{0,15}delet|delet.{0,15}backup|snapshot delet|recovery (fail|point)",
+    "Control 12": r"\bfirewall\b|\bufw\b|%asa|access-group|\bvpn\b|network infrastructure",
+    "Control 13": r"suricata|\bzeek\b|intrusion detection|intrusion prevention|\bids/ips\b|\bnids\b|\bbeacon\b|eternalblue|signature_id|et (exploit|malware|scan)|c2 checkin|command and control",
+    "Control 15": r"\biam\b|service account|gserviceaccount|createserviceaccount|consolelogin|\bcontractor\b",
+    "Control 16": r"sql injection|\bsqli\b|modsecurity|\bwaf\b|remote code execution|\brce\b|\bxss\b|directory traversal",
 }
 # ── Behavioural signals: the boolean fingerprint of an event ─────────────────
+# Same word-boundary discipline as KW: bare "c2" used to match "eC2.amazonaws",
+# making benign EC2 reads look like C2/exfil and wrongly escalate to the LLM.
 SIG = {
-    "malware":              r"mimikatz|beacon|cobalt|ransom|encrypt\.exe|payload|malware|powershell -enc",
-    "c2_or_exfil":          r"c2|exfil|getsecretvalue|/stage2|malicious-domain|filedownloaded",
-    "privilege_escalation": r"sudo|privilege|sebackup|escalat|4672|roles/owner|global admin|super admin",
-    "account_creation":     r"useradd|net user|createuser|4720|provision\.user|add member|backdoor",
-    "lateral_movement":     r"lateral|psexec|netbios|3389|smb|eternalblue",
-    "failed_logins":        r"failed password|invalid user|4625|res=failed|authentication_failed",
+    "malware":              r"mimikatz|\bbeacon\b|cobalt|ransom|encrypt\.exe|payload\.(sh|ps1|exe)|\bmalware\b|powershell\s+-?enc",
+    "c2_or_exfil":          r"\bc2\b|command and control|\bexfil|exfiltrat|getsecretvalue|/stage2|malicious-domain|malware-c2|filedownloaded|data-exfil",
+    "privilege_escalation": r"\bsudo\b|privilege escalat|\bescalat|sebackup|\b4672\b|roles/owner|global admin|super admin",
+    "account_creation":     r"\buseradd\b|net user .*\/add|createuser|\b4720\b|provision\.?user|add member to role|\bbackdoor\b",
+    "lateral_movement":     r"lateral movement|psexec|netbios|\b3389\b|\bsmb\b|eternalblue",
+    "failed_logins":        r"failed password|invalid user|\b4625\b|res=failed|authentication_failed",
     "successful_logins":    r"accepted publickey|consolelogin.{0,30}success|loggedin|aaa user authentication successful",
 }
 
