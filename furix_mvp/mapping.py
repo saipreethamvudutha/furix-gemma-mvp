@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from . import config
 from .compliance import (validate_controls, nist_for_controls,
-                         hipaa_for_controls, CIS_CONTROLS)
+                         hipaa_for_controls, frameworks_for_controls, CIS_CONTROLS)
 
 # Tier labels surfaced in the response so the UI / audit log can show provenance.
 TIER_CROSSWALK = "crosswalk_table"        # Tier 1
@@ -97,6 +97,9 @@ def resolve(finding: dict, ground: dict | None = None,
     # Tier 1 — crosswalk table expansion (only meaningful if we have controls).
     nist = nist_for_controls(controls)
     hipaa = hipaa_for_controls(controls)
+    # All frameworks (spans every SCF framework when the SCF crosswalk is active;
+    # just NIST/HIPAA on the built-in tables). Cheap deterministic lookup.
+    frameworks = frameworks_for_controls(controls) if controls else {}
 
     # Any OTHER deterministic evidence of risk? (signals + IOC hits from C6).
     # We escalate to the LLM ONLY for events that look risky but couldn't be
@@ -131,6 +134,7 @@ def resolve(finding: dict, ground: dict | None = None,
         "control_ids": controls,
         "nist_subcategories": nist,
         "hipaa_sections": hipaa,
+        "frameworks": frameworks,
         "primary_tier": primary,
         "tiers_used": tiers_used,
         "provenance": {c: provenance[c] for c in controls},
