@@ -30,7 +30,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from furix_mvp import mapping, rag                       # noqa: E402
 from furix_mvp.containers import c6_normaliser as c6     # noqa: E402
 
-GOLD = Path(__file__).with_name("gold_set.jsonl")
+if "--holdout" in sys.argv:
+    GOLD = Path(__file__).with_name("holdout_set.jsonl")
+else:
+    _setarg = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--set=")), None)
+    GOLD = Path(_setarg) if _setarg else Path(__file__).with_name("gold_set.jsonl")
 USE_RAG = "--rag" in sys.argv or os.environ.get("RAG_ENABLED") == "1"
 # --pipeline routes each event through the REAL brain.analyze() (rules + crosswalk
 # + embeddings + the conditional LLM fallback), not just mapping.resolve(). Use it

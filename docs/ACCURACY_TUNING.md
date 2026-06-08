@@ -195,7 +195,55 @@ The benchmark is now a permanent tool, not a one-time exercise:
 
 ---
 
-*Files: `tests/eval/gold_set.jsonl`, `tests/eval/run_eval.py`,
-`furix_mvp/containers/c6_normaliser.py` (the tuned `KW` rules),
-`furix_mvp/mapping.py` (the resolver). See `docs/COMPLIANCE_MAPPING.md` for the
-full architecture.*
+## 8. Generalization: the held-out benchmark (the honest test)
+
+F1 0.99 above was measured on the SAME 30 events we tuned the rules against. That
+risks **overfitting** — scoring the engine on its own answer key. So we built a
+second set, `tests/eval/holdout_set.jsonl`: 30 **new** events with different log
+types (Okta, Zeek, Palo Alto, O365, GCP, DLP, WAF, ransomware, pen-test, …) and
+different phrasing, labeled by control intent and **never used for tuning**.
+
+```bash
+MOCK_LLM=1 RAG_ENABLED=0 python tests/eval/run_eval.py --holdout
+```
+
+The first held-out run was the reality check:
+
+```
+   tuning set (gold)   F1 0.99   ← what we'd been reporting
+   held-out (fresh)    F1 0.59   ← the TRUE generalization number
+```
+
+Recall collapsed to 0.47: the rules had no coverage for Controls 14 (awareness) and
+18 (pen testing) at all, and thin coverage for software-install, account-key,
+mail-forwarding, and backup-failure phrasings they'd never seen.
+
+That is exactly what a held-out set is for. We then made a **general coverage pass**
+(added Controls 14 & 18, broadened phrasings for 2/3/5/6/11, tightened a couple of
+false positives) — improving the rules, NOT relabeling the held-out events to flatter
+the score:
+
+```
+   held-out F1   0.59 ███████████████░░░░░  before coverage pass
+                 0.92 ███████████████████████ after (recall 0.47 -> 0.91, benign FP 1/7 -> 0/7)
+   gold F1       still 0.99 (no regression)
+```
+
+### Honest caveat (important)
+Because we used the held-out failures to improve the rules, that set is now a **dev
+set**, not a pristine held-out. The 0.92 is a strong signal that the coverage gaps
+were real and general — but the *final* generalization claim needs a **fresh,
+larger, independently-labeled** held-out set (roadmap Phase 1.2). The remaining
+held-out misses (e.g. gcp-bucket-public → Control 4, cron → Control 10) and the two
+borderline FPs (4688→Control 8, DNS-exfil→Control 3) are documented, defensible
+edge cases — not silent failures.
+
+**Lesson:** a single high score on your tuning set means little. Always keep a set
+the engine has never been tuned on, and report that number.
+
+---
+
+*Files: `tests/eval/gold_set.jsonl`, `tests/eval/holdout_set.jsonl`,
+`tests/eval/run_eval.py` (`--holdout`), `furix_mvp/containers/c6_normaliser.py`
+(the tuned `KW` rules), `furix_mvp/mapping.py` (the resolver). See
+`docs/COMPLIANCE_MAPPING.md` for the full architecture.*

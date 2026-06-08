@@ -16,3 +16,8 @@ vbundles/
 # Editor / OS / harness
 .claude/
 .DS_Store
+
+# SCF data (CC-BY-ND — fetched via scripts/fetch_scf.py, not committed)
+data/
+# eval report artifact
+tests/eval/last_report.json
