@@ -76,14 +76,17 @@ def _ground(redacted: str, finding: dict) -> dict:
 
 
 def _run_agents(finding: dict, ground: dict, enabled: list[str],
-                comp_map: dict) -> tuple[list, dict]:
+                comp_map: dict, explicit: bool = False) -> tuple[list, dict, list]:
     """Run the agents respecting dependencies + the parallel toggle.
 
     `comp_map` is the already-resolved DETERMINISTIC compliance mapping. The
     compliance_mapper (Gemma) is expected to have been filtered out of `enabled`
-    by the caller unless this event is the unknown case — see analyze()."""
+    by the caller unless this event is the unknown case — see analyze().
+    Narrative agents (remediation/report) run ON-DEMAND: only if severity meets
+    NARRATIVE_MIN_SEVERITY, or `explicit` (the caller asked for them by name)."""
     outputs: dict[str, dict] = {}
     results: list = []
+    skipped: list[str] = []
 
     def _run(name):
         if name == "risk_scorer":        return agents.run_risk_scorer(finding, ground)
@@ -101,19 +104,28 @@ def _run_agents(finding: dict, ground: dict, enabled: list[str],
         for a in indep:
             res = _run(a); results.append(res); outputs[res.agent] = res.output
 
-    # Remediation grounds on the resolved compliance mapping (deterministic, or
-    # the LLM suggestion for the unknown case) — never on a bare Gemma guess.
+    # ON-DEMAND gate: the narrative agents are the remaining Gemma load. Run them
+    # only for serious events (or explicit request) — everything else gets the
+    # deterministic verdict + mapping and can generate narrative later on click.
+    severity = outputs.get("risk_scorer", {}).get("severity", "medium")
+    run_narrative = explicit or config.severity_meets(severity)
+
     if "remediation_generator" in enabled:
-        mapping_for_remediation = {"control_ids": comp_map.get("control_ids", []),
-                                   "nist_subcategories": comp_map.get("nist_subcategories", []),
-                                   "hipaa_sections": comp_map.get("hipaa_sections", [])}
-        res = agents.run_remediation_generator(finding, mapping_for_remediation, ground)
-        results.append(res); outputs[res.agent] = res.output
-    # The report depends on everything else.
+        if run_narrative:
+            mapping_for_remediation = {"control_ids": comp_map.get("control_ids", []),
+                                       "nist_subcategories": comp_map.get("nist_subcategories", []),
+                                       "hipaa_sections": comp_map.get("hipaa_sections", [])}
+            res = agents.run_remediation_generator(finding, mapping_for_remediation, ground)
+            results.append(res); outputs[res.agent] = res.output
+        else:
+            skipped.append("remediation_generator")
     if "report_generator" in enabled:
-        res = agents.run_report_generator(finding, outputs)
-        results.append(res); outputs[res.agent] = res.output
-    return results, outputs
+        if run_narrative:
+            res = agents.run_report_generator(finding, outputs)
+            results.append(res); outputs[res.agent] = res.output
+        else:
+            skipped.append("report_generator")
+    return results, outputs, skipped
 
 
 def analyze(raw_log: str, log_type: str = "auto",
@@ -159,9 +171,11 @@ def analyze(raw_log: str, log_type: str = "auto",
     else:
         ops.incr("compliance_deterministic_total")
 
-    # 4. The agents (each a Gemma call) — timed for the Ops/stress view.
+    # 4. The agents — timed for the Ops/stress view. `explicit` = the caller named
+    #    agents (e.g. analyst clicked "generate remediation"), so always run them.
+    explicit = want_agents is not None
     with ops.timer("ai_brain_agents_latency"):
-        results, outputs = _run_agents(finding, ground, enabled, det_map)
+        results, outputs, narrative_skipped = _run_agents(finding, ground, enabled, det_map, explicit)
     ops.incr("ai_brain_analyses_total")
 
     # 4b. Settle the compliance mapping: deterministic stands as-is; for the
@@ -206,6 +220,12 @@ def analyze(raw_log: str, log_type: str = "auto",
             "llm_used": use_llm_mapper,
             "rationale": comp_map.get("rationale"),
         },
+        # Narrative agents deferred (on-demand): below NARRATIVE_MIN_SEVERITY they
+        # are skipped to save Gemma; re-run later via analyze(..., want_agents=[...]).
+        "narrative": {"skipped": narrative_skipped,
+                      "reason": (f"severity '{verdict['severity']}' < "
+                                 f"NARRATIVE_MIN_SEVERITY '{config.NARRATIVE_MIN_SEVERITY}'"
+                                 if narrative_skipped else "")},
         "rag": {"available": ground.get("available"), "reason": ground.get("reason"),
                 "controls": ground.get("controls", []), "snippets": ground.get("snippets", []),
                 "graph_controls": ground.get("graph_controls", [])},

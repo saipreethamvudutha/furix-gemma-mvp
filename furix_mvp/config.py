@@ -55,6 +55,20 @@ COMPLIANCE_LLM_FALLBACK = _bool("COMPLIANCE_LLM_FALLBACK", "1")
 # built-in signal logic. Default ON — this is the load-test lever: it cuts Gemma
 # calls/event from ~4 to ~2. Set to 0 to use the LLM for scoring instead.
 DETERMINISTIC_SCORING = _bool("DETERMINISTIC_SCORING", "1")
+# Narrative agents (remediation_generator, report_generator) are genuinely
+# generative — run them ON-DEMAND: only for events at/above this severity, OR when
+# the caller explicitly requests them (analyst click). Everything below just gets
+# the deterministic verdict + mapping. Set to "informational" to always run them.
+NARRATIVE_MIN_SEVERITY = os.environ.get("NARRATIVE_MIN_SEVERITY", "high").strip().lower()
+_SEV_ORDER = ["informational", "low", "medium", "high", "critical"]
+
+
+def severity_meets(sev: str, threshold: str | None = None) -> bool:
+    th = (threshold or NARRATIVE_MIN_SEVERITY)
+    try:
+        return _SEV_ORDER.index((sev or "medium")) >= _SEV_ORDER.index(th)
+    except ValueError:
+        return True   # unknown threshold → don't gate
 # Vector cosine-similarity floor for ACCEPTING an embedding-tier control as a
 # confident deterministic mapping (Tier 3). Reuses the RAG floor by default.
 MAPPING_EMBED_FLOOR = float(os.environ.get("MAPPING_EMBED_FLOOR",

@@ -57,8 +57,8 @@ KW = {
 SIG = {
     "malware":              r"mimikatz|\bbeacon\b|cobalt|ransom|encrypt\.exe|payload\.(sh|ps1|exe)|\bmalware\b|powershell\s+-?enc",
     "c2_or_exfil":          r"\bc2\b|command and control|\bexfil|exfiltrat|getsecretvalue|/stage2|malicious-domain|malware-c2|filedownloaded|data-exfil",
-    "privilege_escalation": r"\bsudo\b|privilege escalat|\bescalat|sebackup|\b4672\b|roles/owner|global admin|super admin",
-    "account_creation":     r"\buseradd\b|net user .*\/add|createuser|\b4720\b|provision\.?user|add member to role|\bbackdoor\b",
+    "privilege_escalation": r"\bsudo\b|privilege escalat|\bescalat|sebackup|\b4672\b|\b4732\b|roles/owner|global admin|super admin|administratoraccess|attachuserpolicy|localgroup admin|group administrators|privilege\.grant",
+    "account_creation":     r"\buseradd\b|net user .*\/add|createuser|new[- ]?localuser|\b4720\b|provision\.?user|add member to role|createaccesskey|createserviceaccount|\bbackdoor\b",
     "lateral_movement":     r"lateral movement|psexec|netbios|\b3389\b|\bsmb\b|eternalblue",
     "failed_logins":        r"failed password|invalid user|\b4625\b|res=failed|authentication_failed",
     "successful_logins":    r"accepted publickey|consolelogin.{0,30}success|loggedin|aaa user authentication successful",

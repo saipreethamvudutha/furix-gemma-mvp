@@ -204,19 +204,16 @@ def main() -> None:
     gpe = ev["gemma_calls_per_event"]
     remaining = sorted(ev['per_agent_calls'], key=lambda a: -ev['per_agent_calls'][a])
     print(f"  Gemma calls/event now ~{gpe}  (from agents: {remaining}).")
+    nmin = __import__("furix_mvp.config", fromlist=["NARRATIVE_MIN_SEVERITY"]).NARRATIVE_MIN_SEVERITY
     if args.gemma_rps and gpe > 0:
         print(f"  → With local Gemma at {args.gemma_rps} req/s, the brain sustains ~{args.gemma_rps/gpe:,.1f} events/sec.")
-        # Next lever: the narrative agents (remediation/report) are generative — run
-        # them ON-DEMAND (high-severity only / analyst click) instead of every event.
-        narrative = {"remediation_generator", "report_generator"}
-        if any(a in narrative for a in ev['per_agent_calls']):
-            ondemand_share = 0.10   # e.g. only the ~10% high-severity events
-            gpe_next = round(gpe * ondemand_share, 2)
-            if gpe_next and gpe_next < gpe:
-                print(f"  → Next lever: run remediation+report ON-DEMAND (e.g. high-severity ~10%)")
-                print(f"    instead of every event → ~{gpe_next} Gemma calls/event, "
-                      f"sustaining ~{args.gemma_rps/gpe_next:,.0f} events/sec.")
-                print(f"    (or drop them via ENABLED_AGENTS=risk_scorer,compliance_mapper,anomaly_detector)")
+        narrative = sum(ev['per_agent_calls'].get(a, 0) for a in ('remediation_generator', 'report_generator'))
+        if narrative:
+            print(f"  → remediation+report run ON-DEMAND (severity ≥ '{nmin}'); they fired on "
+                  f"{narrative}/{ev['events']*2} possible slots — this corpus is attack-heavy.")
+            print(f"    On a realistic low-severity-majority stream this drops further; or set")
+            print(f"    ENABLED_AGENTS=risk_scorer,compliance_mapper,anomaly_detector for ~"
+                  f"{ev['compliance_llm_rate']:.2f} calls/event (compliance fallback only).")
     elif gpe == 0:
         print(f"  → 0 Gemma calls on this stream — local Gemma is NOT the bottleneck.")
     else:
