@@ -72,19 +72,30 @@ the same move we made for compliance mapping — gated by `DETERMINISTIC_SCORING
                                                                 high-severity / dropped via ENABLED_AGENTS)
 ```
 
-Only `remediation_generator` and `report_generator` still call Gemma per event —
-and they are genuinely generative (narrative write-ups). Run them **on-demand**
-(high-severity events / analyst click) or drop them with
-`ENABLED_AGENTS=risk_scorer,compliance_mapper,anomaly_detector` and Gemma falls to
-~0.05 calls/event (just the ~5% novel compliance fallback).
+`remediation_generator` and `report_generator` are genuinely generative (narrative
+write-ups), so they now run **ON-DEMAND** (default `NARRATIVE_MIN_SEVERITY=high`):
+only events at/above that severity get them inline; everything else gets the
+deterministic verdict + mapping, and narrative can be generated later on click
+(`analyze(..., want_agents=["remediation_generator"])`). Measured end-state:
+
+```
+  before (all 5 agents LLM)         ~4.05 Gemma calls/event
+  risk+anomaly deterministic        ~2.05 Gemma calls/event
+  + narrative on-demand (this step) ~0.91 Gemma calls/event  (attack-heavy corpus;
+                                                              real low-severity traffic = far less)
+  + narrative dropped entirely      ~0.05 Gemma calls/event  → ~80 events/s @ 4 req/s Gemma
+```
 
 Knobs:
 ```
-  DETERMINISTIC_SCORING=1   risk+anomaly run as code, no Gemma (default)
-  COMPLIANCE_LLM_FALLBACK=0 never call Gemma for mapping (unmapped → needs_review)
-  ENABLED_AGENTS=...        drop the narrative agents for max throughput
+  DETERMINISTIC_SCORING=1     risk+anomaly run as code, no Gemma (default)
+  NARRATIVE_MIN_SEVERITY=high remediation+report only for high/critical (default)
+  COMPLIANCE_LLM_FALLBACK=0   never call Gemma for mapping (unmapped → needs_review)
+  ENABLED_AGENTS=...          drop the narrative agents entirely for max throughput
 ```
-With all three, the AI Brain makes **zero** Gemma calls — fully deterministic.
+With narrative dropped + fallback off, the AI Brain makes **zero** Gemma calls —
+fully deterministic. The response carries `narrative.skipped` so deferred write-ups
+are transparent and re-runnable.
 
 ## Bottom line
 

@@ -48,7 +48,8 @@ def _mock_severity(sig: dict) -> tuple[str, int]:
         return "high", 68
     if sig.get("failed_logins"):
         return "medium", 50
-    return "medium", 45
+    # No risk signal of any kind → no evidence of risk → low (not medium).
+    return ("low", 20) if not any(sig.values()) else ("medium", 45)
 
 
 def run_risk_scorer(finding: dict, rag: dict | None = None) -> AgentResult:
