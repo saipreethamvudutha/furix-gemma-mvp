@@ -86,6 +86,24 @@ def test_compliance_uses_scf_when_configured(monkeypatch=None):
         _reset_compliance_cache()
 
 
+# ── Real SCF data (runs only if fetched via scripts/fetch_scf.py) ────────────
+_REAL = Path(__file__).resolve().parents[1] / "data" / "scf" / "scf_catalog.json"
+
+
+def test_real_scf_data_if_present():
+    if not _REAL.exists():
+        print(f"SKIP: real SCF data not fetched ({_REAL}). Run scripts/fetch_scf.py.")
+        return
+    cw = scf_loader.load(str(_REAL))
+    assert len(cw.scf_to_fw) > 800, "expected the full SCF catalog (1000+ controls)"
+    fws = cw.frameworks()
+    for expected in ("cis", "nist_csf", "hipaa", "pci_dss"):
+        assert expected in fws, f"{expected} missing from real SCF: {fws}"
+    # a known CIS control expands to multiple frameworks
+    exp = cw.expand(["Control 6"])
+    assert exp.get("hipaa") and (exp.get("nist_csf") or exp.get("nist_80053"))
+
+
 def test_compliance_falls_back_when_scf_absent():
     from furix_mvp import compliance, config
     _reset_compliance_cache()

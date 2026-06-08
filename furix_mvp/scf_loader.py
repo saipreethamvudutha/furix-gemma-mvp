@@ -18,6 +18,7 @@ back to its built-in tables — so the engine always works.
 from __future__ import annotations
 
 import csv
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -42,6 +43,21 @@ STRM_STR_COLS = ["Strength of Relationship", "Strength Score", "Strength", "stre
 
 # Framework keys that hold real external IDs (everything except the SCF id/name).
 FRAMEWORK_KEYS = ["nist_csf", "nist_80053", "cis", "hipaa", "iso_27001", "pci_dss", "soc2"]
+
+# Column names in the official SCF "JSON_Data" export (from the SCF OSCAL GitHub
+# repo). These headers contain newlines and vary by release, so we list several
+# candidates and use the first present. This is the REAL SCF data format.
+DEFAULT_JSON_COLUMN_MAP: dict[str, list[str]] = {
+    "scf_id":     ["SCF #"],
+    "scf_name":   ["SCF Control"],
+    "nist_csf":   ["NIST\nCSF\nv2.0", "NIST\nCSF\nv1.1", "NIST CSF v2.0", "NIST CSF v1.1"],
+    "nist_80053": ["NIST\n800-53\nrev5", "NIST\n800-53\nrev4"],
+    "cis":        ["CIS\nCSC\nv8.1", "CIS\nCSC\nv8.0", "CIS\nCSC\nv8", "CIS CSC v8.1"],
+    "hipaa":      ["US\nHIPAA", "HIPAA"],
+    "iso_27001":  ["ISO\n27001\nv2022", "ISO\n27001\nv2013"],
+    "pci_dss":    ["PCIDSS\nv4.0", "PCIDSS\nv3.2", "PCI DSS v4.0"],
+    "soc2":       ["AICPA\nTSC 2017\n(SOC 2)", "AICPA TSC 2017"],
+}
 
 
 def _cis_control_number(value: str) -> str | None:
@@ -111,7 +127,76 @@ class Crosswalk:
         return self.expand(cis_controls).get("hipaa", [])
 
 
+def _as_id_list(val) -> list[str]:
+    """Normalise a framework cell (list | str | None) to a clean list of IDs."""
+    if val is None:
+        return []
+    if isinstance(val, list):
+        return [str(x).strip() for x in val if str(x).strip()]
+    return _split_ids(str(val))
+
+
 def load(path: str | Path, column_map: dict[str, list[str]] | None = None) -> Crosswalk:
+    """Load an SCF crosswalk. Dispatches by extension: .json -> SCF JSON_Data
+    export (the real GitHub data), otherwise a catalog CSV. Deterministic."""
+    if str(path).lower().endswith(".json"):
+        return load_json(path, column_map)
+    return load_csv(path, column_map)
+
+
+def load_json(path: str | Path, column_map: dict[str, list[str]] | None = None) -> Crosswalk:
+    """Parse the official SCF 'JSON_Data' export (list of control records) into a
+    Crosswalk. This is the real SCF data from the SCF OSCAL GitHub repo."""
+    column_map = column_map or DEFAULT_JSON_COLUMN_MAP
+    cw = Crosswalk(source=str(path))
+    with open(path, encoding="utf-8") as fh:
+        records = json.load(fh)
+    if not isinstance(records, list):
+        raise ValueError(f"Expected a list of SCF records in {path}")
+
+    sample_keys: set[str] = set()
+    for r in records[:100]:
+        if isinstance(r, dict):
+            sample_keys.update(r.keys())
+
+    def pick(cands: list[str]) -> str | None:
+        for c in cands:
+            if c in sample_keys:
+                return c
+        return None
+
+    col = {key: pick(cands) for key, cands in column_map.items()}
+    scf_col = col.get("scf_id")
+    if not scf_col:
+        raise ValueError(f"No SCF id column found in {path}")
+
+    for r in records:
+        if not isinstance(r, dict):
+            continue
+        raw_id = r.get(scf_col)
+        scf_id = (raw_id[0] if isinstance(raw_id, list) and raw_id else raw_id)
+        scf_id = str(scf_id).strip() if scf_id else ""
+        if not scf_id:
+            continue
+        fwmap: dict[str, list[str]] = {}
+        for fw in FRAMEWORK_KEYS:
+            c = col.get(fw)
+            if not c:
+                continue
+            ids = _as_id_list(r.get(c))
+            if not ids:
+                continue
+            fwmap[fw] = ids
+            for ext in ids:
+                key = (fw, _cis_control_number(ext) if fw == "cis" else ext)
+                cw.fw_to_scf.setdefault(key, [])
+                if scf_id not in cw.fw_to_scf[key]:
+                    cw.fw_to_scf[key].append(scf_id)
+        cw.scf_to_fw[scf_id] = fwmap
+    return cw
+
+
+def load_csv(path: str | Path, column_map: dict[str, list[str]] | None = None) -> Crosswalk:
     """Parse an SCF catalog CSV into a Crosswalk. Deterministic."""
     column_map = column_map or DEFAULT_COLUMN_MAP
     cw = Crosswalk(source=str(path))
