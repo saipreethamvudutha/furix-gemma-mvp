@@ -103,6 +103,11 @@ def normalise(raw: str, log_type_hint: str = "auto") -> dict:
         "entities": entities,
         "intel": {"ioc_hits": ioc_hits},
         "signals": signals,
+        # rule_controls = GENUINE keyword/signature matches ([] when nothing fired).
+        # candidate_controls keeps the legacy default sentinel for backward compat.
+        # The mapping resolver reads rule_controls so it can tell a real Control 8
+        # hit from "nothing matched, defaulted to audit-log".
+        "rule_controls": controls,
         "candidate_controls": controls or ["Control 8"],
         "summary": "Normalised by C6 (deterministic).",
     }

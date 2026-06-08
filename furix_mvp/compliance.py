@@ -102,6 +102,27 @@ def nist_for_controls(control_ids: list[str]) -> list[str]:
     return out
 
 
+def hipaa_for_controls(control_ids: list[str]) -> list[str]:
+    """Deterministic CIS-control -> HIPAA-section crosswalk, via the NIST pivot.
+
+    We don't store a direct CIS->HIPAA table. Instead we derive it the way NIST
+    IR 8477 (STRM) describes an "intersects with" relationship: a HIPAA section
+    relates to a CIS control when their NIST CSF 2.0 subcategory sets OVERLAP.
+    CIS_TO_NIST gives control -> NIST; HIPAA_TO_NIST gives HIPAA -> NIST; the
+    intersection is the bridge. Pure set math — no LLM, fully repeatable.
+    """
+    target_nist: set[str] = set()
+    for c in control_ids:
+        target_nist.update(CIS_TO_NIST.get(c, []))
+    if not target_nist:
+        return []
+    out: list[str] = []
+    for section, subcats in HIPAA_TO_NIST.items():
+        if target_nist.intersection(subcats):
+            out.append(section)
+    return sorted(out)
+
+
 def validate_controls(control_ids: list[str]) -> list[str]:
     """Drop anything not in the CIS v8.1 catalog (anti-hallucination guard)."""
     return [c for c in control_ids if c in CIS_CONTROLS]

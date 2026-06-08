@@ -61,7 +61,12 @@ def run_risk_scorer(finding: dict, rag: dict | None = None) -> AgentResult:
     return _result("risk_scorer", r, out)
 
 
-# ── 2. Compliance Mapper ─────────────────────────────────────────────────────
+# ── 2. Compliance Mapper (LLM FALLBACK ONLY — non-authoritative) ──────────────
+# Compliance mapping is normally done deterministically in mapping.py (rules +
+# crosswalk + embeddings). brain.py invokes THIS agent only for the unknown case
+# (no deterministic tier matched) and treats its output as a reviewable
+# suggestion, re-validated and crosswalk-expanded before it is shown. It is never
+# the system of record.
 def run_compliance_mapper(finding: dict, rag: dict | None = None) -> AgentResult:
     cand = finding.get("candidate_controls", [])
     mock = {"control_ids": validate_controls(cand) or ["Control 8"],

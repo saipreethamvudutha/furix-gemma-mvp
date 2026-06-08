@@ -19,7 +19,7 @@ import hashlib
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from . import agents, config, rag
+from . import agents, config, rag, mapping
 from .compliance import CIS_CONTROLS, validate_controls, nist_for_controls
 from .dal import DAL
 from .containers import c6_normaliser as c6      # deterministic triage (no LLM)
@@ -75,8 +75,13 @@ def _ground(redacted: str, finding: dict) -> dict:
                           "content": CIS_CONTROLS[c], "score": None} for c in cands]}
 
 
-def _run_agents(finding: dict, ground: dict, enabled: list[str]) -> tuple[list, dict]:
-    """Run the 5 agents respecting dependencies + the parallel toggle."""
+def _run_agents(finding: dict, ground: dict, enabled: list[str],
+                comp_map: dict) -> tuple[list, dict]:
+    """Run the agents respecting dependencies + the parallel toggle.
+
+    `comp_map` is the already-resolved DETERMINISTIC compliance mapping. The
+    compliance_mapper (Gemma) is expected to have been filtered out of `enabled`
+    by the caller unless this event is the unknown case — see analyze()."""
     outputs: dict[str, dict] = {}
     results: list = []
 
@@ -96,9 +101,13 @@ def _run_agents(finding: dict, ground: dict, enabled: list[str]) -> tuple[list, 
         for a in indep:
             res = _run(a); results.append(res); outputs[res.agent] = res.output
 
-    # Remediation depends on the compliance mapping.
+    # Remediation grounds on the resolved compliance mapping (deterministic, or
+    # the LLM suggestion for the unknown case) — never on a bare Gemma guess.
     if "remediation_generator" in enabled:
-        res = agents.run_remediation_generator(finding, outputs.get("compliance_mapper", {}), ground)
+        mapping_for_remediation = {"control_ids": comp_map.get("control_ids", []),
+                                   "nist_subcategories": comp_map.get("nist_subcategories", []),
+                                   "hipaa_sections": comp_map.get("hipaa_sections", [])}
+        res = agents.run_remediation_generator(finding, mapping_for_remediation, ground)
         results.append(res); outputs[res.agent] = res.output
     # The report depends on everything else.
     if "report_generator" in enabled:
@@ -125,6 +134,10 @@ def analyze(raw_log: str, log_type: str = "auto",
     if cached:
         return {"finding_id": _finding_id(raw_log), "log_type": finding["log_type"],
                 "finding": dal.rehydrate_obj(finding), "verdict": cached, "agents": [],
+                "compliance": {"primary_tier": "verdict_cache", "tiers_used": ["verdict_cache"],
+                               "provenance": {}, "confidence": None, "authoritative": True,
+                               "needs_review": False, "llm_used": False,
+                               "rationale": "Served from the deterministic verdict cache."},
                 "rag": {"available": False, "reason": "verdict_cache_hit"},
                 "dal": dal.report(), "cache_hit": True,
                 "total_latency_ms": int((time.time() - t0) * 1000)}
@@ -132,28 +145,46 @@ def analyze(raw_log: str, log_type: str = "auto",
     # 3. Grounding (C9 RAG or static map)
     ground = _ground(redacted, finding)
 
-    # 4. The 5 agents (each a Gemma call) — timed for the Ops/stress view.
+    # 3b. DETERMINISTIC compliance mapping FIRST (code, no LLM): rules + crosswalk
+    #     + embeddings. This is the authoritative path. The Gemma compliance_mapper
+    #     is only kept in `enabled` for the UNKNOWN case (nothing matched) and only
+    #     when COMPLIANCE_LLM_FALLBACK is on. Known events skip that Gemma call.
+    det_map = mapping.resolve(finding, ground)
+    enabled = list(enabled)
+    use_llm_mapper = det_map["needs_llm"] and config.COMPLIANCE_LLM_FALLBACK
+    if "compliance_mapper" in enabled and not use_llm_mapper:
+        enabled.remove("compliance_mapper")
+    if use_llm_mapper:
+        ops.incr("compliance_llm_fallback_total")
+    else:
+        ops.incr("compliance_deterministic_total")
+
+    # 4. The agents (each a Gemma call) — timed for the Ops/stress view.
     with ops.timer("ai_brain_agents_latency"):
-        results, outputs = _run_agents(finding, ground, enabled)
+        results, outputs = _run_agents(finding, ground, enabled, det_map)
     ops.incr("ai_brain_analyses_total")
+
+    # 4b. Settle the compliance mapping: deterministic stands as-is; for the
+    #     unknown case fold the LLM suggestion in (validated, non-authoritative).
+    comp_map = mapping.merge_llm_suggestion(det_map, outputs.get("compliance_mapper"))
 
     # 5. Rehydrate (placeholders → real values) AFTER the model has answered.
     finding = dal.rehydrate_obj(finding)
     for res in results:
         res.output = dal.rehydrate_obj(res.output)
 
-    # 6. Merge one verdict from the agents' specialised outputs.
+    # 6. Merge one verdict. Compliance fields come from the AUTHORITATIVE
+    #    deterministic mapping (comp_map), NOT from a raw LLM agent output.
     risk = outputs.get("risk_scorer", {})
-    comp = outputs.get("compliance_mapper", {})
     anom = outputs.get("anomaly_detector", {})
-    controls = comp.get("control_ids") or finding.get("candidate_controls", [])
+    controls = comp_map.get("control_ids", [])
     verdict = {
         "severity": risk.get("severity", "medium"),
         "risk_score": int(risk.get("risk_score", 0) or 0),
         "confidence": float(risk.get("confidence", 0.0) or 0.0),
         "control_ids": controls,
-        "nist_subcategories": comp.get("nist_subcategories") or nist_for_controls(controls),
-        "hipaa_sections": comp.get("hipaa_sections", []),
+        "nist_subcategories": comp_map.get("nist_subcategories", []),
+        "hipaa_sections": comp_map.get("hipaa_sections", []),
         "is_anomaly": bool(anom.get("is_anomaly", False)),
         "summary": finding.get("summary", ""),
     }
@@ -163,6 +194,18 @@ def analyze(raw_log: str, log_type: str = "auto",
         "finding_id": _finding_id(raw_log), "log_type": finding.get("log_type", "generic"),
         "finding": finding, "verdict": verdict,
         "agents": [r.model_dump() for r in results],
+        # Provenance for the mapping: which tier decided it, per-control sources,
+        # whether the LLM was needed, and whether a human should review.
+        "compliance": {
+            "primary_tier": comp_map.get("primary_tier"),
+            "tiers_used": comp_map.get("tiers_used", []),
+            "provenance": comp_map.get("provenance", {}),
+            "confidence": comp_map.get("confidence"),
+            "authoritative": comp_map.get("authoritative"),
+            "needs_review": comp_map.get("needs_review", False),
+            "llm_used": use_llm_mapper,
+            "rationale": comp_map.get("rationale"),
+        },
         "rag": {"available": ground.get("available"), "reason": ground.get("reason"),
                 "controls": ground.get("controls", []), "snippets": ground.get("snippets", []),
                 "graph_controls": ground.get("graph_controls", [])},
