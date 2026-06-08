@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import brain, config, db, llm, rag, pipeline
+from . import brain, config, db, llm, rag, pipeline, config_checks
 from .schemas import AnalyzeRequest
 from .samples import SAMPLE_LOGS
 from .containers import (c12_operations as ops, c8_storage_detect as c8,
@@ -54,6 +54,17 @@ def analyze(req: AnalyzeRequest) -> dict:
     record = brain.analyze(req.raw_log, req.log_type, req.agents)
     _persist(record)
     return record
+
+
+class ConfigScanRequest(BaseModel):
+    config: dict                # a normalized config snapshot (see config_checks.py)
+
+
+@app.post("/api/config-scan")
+def config_scan(req: ConfigScanRequest) -> dict:
+    """Config-state compliance: 'is the control IMPLEMENTED?' Deterministic
+    policy-as-code (no LLM) → pass/fail findings mapped to controls + frameworks."""
+    return config_checks.evaluate(req.config)
 
 
 class BatchRequest(BaseModel):
