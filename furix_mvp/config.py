@@ -51,6 +51,10 @@ RAG_SCORE_FLOOR = float(os.environ.get("RAG_SCORE_FLOOR", "0.30"))
 # when no deterministic tier could map the event. Set to 0 to disable the LLM
 # fallback entirely and have unmapped events flagged needs_review instead.
 COMPLIANCE_LLM_FALLBACK = _bool("COMPLIANCE_LLM_FALLBACK", "1")
+# Run risk_scorer + anomaly_detector deterministically (no Gemma call) using their
+# built-in signal logic. Default ON — this is the load-test lever: it cuts Gemma
+# calls/event from ~4 to ~2. Set to 0 to use the LLM for scoring instead.
+DETERMINISTIC_SCORING = _bool("DETERMINISTIC_SCORING", "1")
 # Vector cosine-similarity floor for ACCEPTING an embedding-tier control as a
 # confident deterministic mapping (Tier 3). Reuses the RAG floor by default.
 MAPPING_EMBED_FLOOR = float(os.environ.get("MAPPING_EMBED_FLOOR",
