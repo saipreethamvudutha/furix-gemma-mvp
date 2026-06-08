@@ -7,7 +7,7 @@ never escapes. Mock outputs keep the whole pipeline runnable offline.
 from __future__ import annotations
 from typing import Any
 
-from . import prompts
+from . import prompts, config
 from .llm import complete_json, LLMResult
 from .compliance import (validate_controls, validate_nist, validate_hipaa,
                          nist_for_controls, SEVERITIES)
@@ -20,6 +20,13 @@ def _result(name: str, r: LLMResult, output: dict) -> AgentResult:
         latency_ms=r.latency_ms, prompt_tokens=r.prompt_tokens,
         completion_tokens=r.completion_tokens, source=r.source, error=r.error,
     )
+
+
+def _det_result(name: str, output: dict) -> AgentResult:
+    """An agent result produced by deterministic code — NO Gemma call.
+    source='deterministic' so the load test does not count it as a Gemma call."""
+    return AgentResult(agent=name, ok=True, output=output, latency_ms=0,
+                       prompt_tokens=0, completion_tokens=0, source="deterministic")
 
 
 def _clamp_sev(sev: str) -> str:
@@ -47,6 +54,12 @@ def _mock_severity(sig: dict) -> tuple[str, int]:
 def run_risk_scorer(finding: dict, rag: dict | None = None) -> AgentResult:
     sig = finding.get("signals", {})
     sev, score = _mock_severity(sig)
+    # DETERMINISTIC mode: severity comes from the signal logic above — no Gemma call.
+    if config.DETERMINISTIC_SCORING:
+        return _det_result("risk_scorer", {
+            "severity": sev, "risk_score": score, "confidence": 0.9,
+            "rationale": "Deterministic signal-based score (no LLM).",
+            "top_factors": [k for k, v in sig.items() if v][:3]})
     mock = {"severity": sev, "risk_score": score, "confidence": 0.6,
             "rationale": "Mock score (offline).", "top_factors": [k for k, v in sig.items() if v][:3]}
     r = complete_json(prompts.RISK_SYS, prompts.risk_user(finding, rag),
@@ -105,6 +118,12 @@ def run_anomaly_detector(finding: dict, rag: dict | None = None) -> AgentResult:
     sig = finding.get("signals", {})
     anom = any(sig.get(k) for k in ("malware", "c2_or_exfil",
                                     "lateral_movement", "account_creation"))
+    # DETERMINISTIC mode: anomaly comes from the signal fingerprint — no Gemma call.
+    if config.DETERMINISTIC_SCORING:
+        return _det_result("anomaly_detector", {
+            "is_anomaly": bool(anom), "anomaly_type": "process" if anom else "none",
+            "confidence": 0.9, "explanation": "Deterministic signal-based assessment (no LLM).",
+            "indicators": [k for k, v in sig.items() if v][:3]})
     mock = {"is_anomaly": bool(anom), "anomaly_type": "process" if anom else "none",
             "confidence": 0.6, "explanation": "Mock anomaly assessment.",
             "indicators": [k for k, v in sig.items() if v][:3]}

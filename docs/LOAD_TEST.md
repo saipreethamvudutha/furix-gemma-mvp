@@ -58,26 +58,41 @@ So the real Gemma demand is **~4 calls/event**, not the compliance fallback's 5%
 At a local-Gemma capacity of 4 req/s, that's only ~1 event/sec — **Gemma, not the
 engine, is the bottleneck.**
 
-## The lever (clear next step)
+## The lever (now pulled)
 
-`risk_scorer` and `anomaly_detector` **already have deterministic logic** in
-`agents.py` (it's used as the offline mock: `_mock_severity`, the signal-based
-anomaly check). Promoting those two off the LLM — the same move we made for
-compliance mapping — would cut Gemma to **~2 calls/event** (only the genuinely
-generative `remediation` + `report`), **doubling** the sustainable event rate. And
-those two narrative agents can run async / on-demand rather than inline.
+`risk_scorer` and `anomaly_detector` already had deterministic logic in `agents.py`
+(`_mock_severity`, the signal-based anomaly check). We promoted both off the LLM —
+the same move we made for compliance mapping — gated by `DETERMINISTIC_SCORING`
+(default ON). Measured effect:
 
 ```
-  today                          ~4.0 Gemma calls/event
-  + deterministic risk+anomaly   ~2.0 Gemma calls/event   (2× throughput)
-  + remediation/report on-demand  <1  Gemma call/event    (Gemma ~never on the hot path)
+  before (all 5 agents LLM)        ~4.05 Gemma calls/event   → ~1 event/s @ 4 req/s Gemma
+  risk+anomaly deterministic       ~2.05 Gemma calls/event   → ~2 event/s   (this change)
+  + remediation/report on-demand   ~0.05 Gemma calls/event   → ~80 event/s  (narrative only on
+                                                                high-severity / dropped via ENABLED_AGENTS)
 ```
+
+Only `remediation_generator` and `report_generator` still call Gemma per event —
+and they are genuinely generative (narrative write-ups). Run them **on-demand**
+(high-severity events / analyst click) or drop them with
+`ENABLED_AGENTS=risk_scorer,compliance_mapper,anomaly_detector` and Gemma falls to
+~0.05 calls/event (just the ~5% novel compliance fallback).
+
+Knobs:
+```
+  DETERMINISTIC_SCORING=1   risk+anomaly run as code, no Gemma (default)
+  COMPLIANCE_LLM_FALLBACK=0 never call Gemma for mapping (unmapped → needs_review)
+  ENABLED_AGENTS=...        drop the narrative agents for max throughput
+```
+With all three, the AI Brain makes **zero** Gemma calls — fully deterministic.
 
 ## Bottom line
 
-- The **deterministic compliance engine works and is fast** (~1,590 eps, p99 18ms);
-  it is not the bottleneck.
-- **Local Gemma capacity is the bottleneck**, because four agents still call it per
-  event — *not* because of compliance mapping (which is now ~95% deterministic).
-- The fix is the same pattern, applied to two more agents whose deterministic logic
-  already exists. That is the highest-leverage next optimization (roadmap Phase 3.1).
+- The **deterministic compliance engine works and is fast** (~1,600 eps, p99 ~17ms);
+  it is never the bottleneck.
+- **Gemma load is now ~2 calls/event** (down from ~4), and configurable down to
+  ~0.05 — so local Gemma capacity is no longer the hard ceiling it was.
+- Compliance accuracy is unchanged by the scoring change (gold F1 0.99, held-out 0.92):
+  risk/anomaly scoring is orthogonal to control mapping.
+- This validated both goals in one harness: **the compliance engine works**, and
+  **the other agents — not the engine — were the Gemma load**, now halved.

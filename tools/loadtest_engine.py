@@ -107,8 +107,11 @@ def run_events(corpus, n_events: int, concurrency: int, unique: bool = True,
         rec = brain.analyze(raw, lt)
         dt = (time.perf_counter() - t) * 1000.0
         c = rec.get("compliance", {})
-        # In real mode each agent that ran == one Gemma call.
-        agents_ran = [a["agent"] for a in rec.get("agents", []) if a["agent"] in _LLM_AGENTS]
+        # Count by SOURCE, not name: only agents whose source is a real/standin LLM
+        # call ('llm' live, 'mock' offline) count as Gemma load. 'deterministic'
+        # agents (risk/anomaly when DETERMINISTIC_SCORING=1) do NOT.
+        agents_ran = [a["agent"] for a in rec.get("agents", [])
+                      if a.get("source") in ("llm", "mock")]
         return dt, bool(c.get("llm_used")), bool(c.get("benign")), bool(rec.get("cache_hit")), c.get("primary_tier"), agents_ran
 
     t0 = time.perf_counter()
@@ -195,20 +198,27 @@ def main() -> None:
     print(f"  scans                : {cfg['scans']}   throughput: {cfg['throughput_sps']} scans/sec")
 
     print("\n── VERDICT ──")
-    print(f"  Compliance MAPPING is ~{(1-ev['compliance_llm_rate'])*100:.0f}% deterministic (zero LLM).")
+    det_scoring = __import__("furix_mvp.config", fromlist=["DETERMINISTIC_SCORING"]).DETERMINISTIC_SCORING
+    print(f"  Compliance MAPPING ~{(1-ev['compliance_llm_rate'])*100:.0f}% deterministic; "
+          f"risk+anomaly scoring deterministic: {det_scoring}.")
     gpe = ev["gemma_calls_per_event"]
-    print(f"  BUT the 5-agent AI Brain still makes ~{gpe} Gemma calls/event "
-          f"(risk, anomaly, remediation, report run on every event).")
+    remaining = sorted(ev['per_agent_calls'], key=lambda a: -ev['per_agent_calls'][a])
+    print(f"  Gemma calls/event now ~{gpe}  (from agents: {remaining}).")
     if args.gemma_rps and gpe > 0:
-        max_eps = args.gemma_rps / gpe
-        print(f"  → With local Gemma at {args.gemma_rps} req/s, the brain sustains ~{max_eps:,.1f} events/sec.")
-        # what if risk+anomaly were also made deterministic (they already have it)?
-        narrative = sum(ev['per_agent_calls'].get(a, 0) for a in ('remediation_generator', 'report_generator'))
-        gpe2 = round(narrative / max(1, ev['events']), 2)
-        if gpe2 and gpe2 < gpe:
-            print(f"  → If risk_scorer + anomaly_detector were made deterministic too (their logic")
-            print(f"    already exists), Gemma calls/event drop to ~{gpe2}, sustaining "
-                  f"~{args.gemma_rps/gpe2:,.1f} events/sec.")
+        print(f"  → With local Gemma at {args.gemma_rps} req/s, the brain sustains ~{args.gemma_rps/gpe:,.1f} events/sec.")
+        # Next lever: the narrative agents (remediation/report) are generative — run
+        # them ON-DEMAND (high-severity only / analyst click) instead of every event.
+        narrative = {"remediation_generator", "report_generator"}
+        if any(a in narrative for a in ev['per_agent_calls']):
+            ondemand_share = 0.10   # e.g. only the ~10% high-severity events
+            gpe_next = round(gpe * ondemand_share, 2)
+            if gpe_next and gpe_next < gpe:
+                print(f"  → Next lever: run remediation+report ON-DEMAND (e.g. high-severity ~10%)")
+                print(f"    instead of every event → ~{gpe_next} Gemma calls/event, "
+                      f"sustaining ~{args.gemma_rps/gpe_next:,.0f} events/sec.")
+                print(f"    (or drop them via ENABLED_AGENTS=risk_scorer,compliance_mapper,anomaly_detector)")
+    elif gpe == 0:
+        print(f"  → 0 Gemma calls on this stream — local Gemma is NOT the bottleneck.")
     else:
         print(f"  → Pass --gemma-rps <measured from tools/loadtest.py> to project sustainable event rate.")
     print(f"  Deterministic engine itself runs at {ev['throughput_eps']} events/sec — never the bottleneck.")
