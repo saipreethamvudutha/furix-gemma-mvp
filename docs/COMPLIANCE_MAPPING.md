@@ -158,6 +158,44 @@ For known events the `compliance_mapper` Gemma call does not run at all.
 
 ---
 
+## Measuring & improving accuracy (the eval loop)
+
+Mapping accuracy is the quality of three assets: the rules, the crosswalk tables,
+and the embedding index. Don't tune them blind — measure.
+
+`tests/eval/` is a labeled benchmark + scorer:
+
+```
+cd "MVP_TEST GEMMA"
+MOCK_LLM=1 RAG_ENABLED=0 .venv/bin/python tests/eval/run_eval.py        # rules + crosswalk
+MOCK_LLM=1 RAG_ENABLED=1 .venv/bin/python tests/eval/run_eval.py --rag  # + embeddings
+```
+
+- `gold_set.jsonl` — atomic events with hand-labeled correct controls (extend it).
+- `run_eval.py` — reports micro precision/recall/F1, a per-control table, the
+  benign false-positive rate, **per-tier attribution** (which tier is the noise
+  source), and the worst FP/FN events to fix next. Writes `last_report.json` so
+  you can track trends across tuning passes.
+
+This loop found and fixed the real accuracy bug: bare-substring keyword matching.
+`rce` matched "souRCE"/"eventSouRCE"; `c2` matched "eC2.amazonaws"; `s3`/`bucket`
+fired Control 3 on every S3 call. Word-boundary anchoring (`\b...\b`) + adding the
+6 missing controls + tightening over-broad tokens took the benchmark from:
+
+| pass | precision | recall | F1 | benign FP |
+|---|---|---|---|---|
+| baseline (substring keywords) | 0.60 | 0.75 | 0.67 | 2/4 |
+| pass 1 (word boundaries + missing controls) | 0.81 | 0.85 | 0.83 | 2/4 |
+| pass 2 (tighten Control 15, add mfa/conditional-access) | 0.95 | 1.00 | 0.97 | 0/4 |
+| pass 3 (fix IDS/IPS token) | 0.97 | 1.00 | 0.99 | 0/4 |
+
+The one remaining false positive (a DNS query to `malware-c2.ru` also tagged
+Control 10 Malware Defenses) is defensible, not a bug.
+
+**Rule of thumb:** when accuracy is poor, run the eval, read the per-tier
+attribution and worst-FP/FN lists, fix the specific rule or table entry, re-run.
+Never revert to the LLM to "fix accuracy" — improve the deterministic asset.
+
 ## How to make it even stronger (next steps)
 
 1. Replace the hand-typed `CIS_TO_NIST` / `HIPAA_TO_NIST` tables with the official
