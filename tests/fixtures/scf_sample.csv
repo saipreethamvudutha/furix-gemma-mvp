@@ -1,0 +1,9 @@
+SCF #,SCF Control,NIST CSF v2.0,CIS CSC v8.1,HIPAA,ISO 27001 v2022,PCI DSS v4.0,STRM Relationship,Strength Score
+IAC-01,Identity & Access Management,PR.AA-01,5.1,164.312(a)(1),A.5.15,8.2,subset of,8
+IAC-15,Privileged Account Management,PR.AA-05,6.8,164.312(a)(2)(i),A.8.2,7.2,intersects with,7
+IAC-20,Account Lifecycle,PR.AA-01,5.3,164.308(a)(3)(ii)(C),A.5.16,8.1,equal,9
+IAC-07,Access Enforcement,PR.AA-05,6.1,164.312(a)(1),A.8.3,7.1,subset of,8
+DCH-01,Data Protection,PR.DS-01,3.1,164.312(c)(1),A.8.12,3.1,subset of,8
+MON-01,Continuous Monitoring,DE.CM-01,13.1,164.308(a)(1)(ii)(D),A.8.16,10.1,intersects with,6
+VPM-04,Vulnerability Management,ID.RA-01,7.1,,A.8.8,11.3,subset of,7
+END-04,Malicious Code Protection,DE.CM-09,10.1,164.308(a)(5)(ii)(B),A.8.7,5.1,subset of,8

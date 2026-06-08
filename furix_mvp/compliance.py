@@ -93,7 +93,42 @@ NIST_ALLOWED = sorted({sc for v in CIS_TO_NIST.values() for sc in v} |
 SEVERITIES = ["critical", "high", "medium", "low", "informational"]
 
 
+# ── Authoritative SCF crosswalk (Phase 1.1) ──────────────────────────────────
+# If an SCF export is configured (config.SCF_CSV_PATH), we use the official SCF
+# crosswalk (200+ frameworks, STRM-typed) instead of the small hand-typed tables
+# below. Loaded once, cached. If unset/missing, we transparently fall back so the
+# engine always works. No LLM involved either way.
+_scf_cache: dict = {"loaded": False, "crosswalk": None}
+
+
+def scf_provider():
+    """Return the loaded SCF Crosswalk, or None if not configured/available."""
+    if _scf_cache["loaded"]:
+        return _scf_cache["crosswalk"]
+    _scf_cache["loaded"] = True
+    try:
+        from . import config
+        path = getattr(config, "SCF_CSV_PATH", "") or ""
+        if path:
+            import os
+            if os.path.exists(path):
+                from . import scf_loader
+                _scf_cache["crosswalk"] = scf_loader.load(path)
+    except Exception:  # noqa: BLE001 — never let SCF loading break the engine
+        _scf_cache["crosswalk"] = None
+    return _scf_cache["crosswalk"]
+
+
+def crosswalk_source() -> str:
+    """'scf:<path>' when the authoritative SCF is active, else 'builtin'."""
+    cw = scf_provider()
+    return f"scf:{cw.source}" if cw else "builtin"
+
+
 def nist_for_controls(control_ids: list[str]) -> list[str]:
+    cw = scf_provider()
+    if cw:
+        return cw.nist_for_cis(control_ids)
     out: list[str] = []
     for c in control_ids:
         for sc in CIS_TO_NIST.get(c, []):
@@ -103,14 +138,16 @@ def nist_for_controls(control_ids: list[str]) -> list[str]:
 
 
 def hipaa_for_controls(control_ids: list[str]) -> list[str]:
-    """Deterministic CIS-control -> HIPAA-section crosswalk, via the NIST pivot.
+    """CIS-control -> HIPAA crosswalk.
 
-    We don't store a direct CIS->HIPAA table. Instead we derive it the way NIST
-    IR 8477 (STRM) describes an "intersects with" relationship: a HIPAA section
-    relates to a CIS control when their NIST CSF 2.0 subcategory sets OVERLAP.
-    CIS_TO_NIST gives control -> NIST; HIPAA_TO_NIST gives HIPAA -> NIST; the
-    intersection is the bridge. Pure set math — no LLM, fully repeatable.
+    With the SCF active, this is a direct, human-curated SCF lookup. Without it,
+    we derive it the way NIST IR 8477 (STRM) describes an "intersects with"
+    relationship: a HIPAA section relates to a CIS control when their NIST CSF 2.0
+    subcategory sets OVERLAP. Pure set math — no LLM, fully repeatable.
     """
+    cw = scf_provider()
+    if cw:
+        return cw.hipaa_for_cis(control_ids)
     target_nist: set[str] = set()
     for c in control_ids:
         target_nist.update(CIS_TO_NIST.get(c, []))
@@ -121,6 +158,25 @@ def hipaa_for_controls(control_ids: list[str]) -> list[str]:
         if target_nist.intersection(subcats):
             out.append(section)
     return sorted(out)
+
+
+def frameworks_for_controls(control_ids: list[str]) -> dict[str, list[str]]:
+    """Every framework a set of CIS controls maps to.
+
+    With the SCF active this spans all SCF frameworks (NIST CSF/800-53, HIPAA,
+    ISO 27001, PCI-DSS, SOC 2, …). Without it, just the two built-in tables.
+    """
+    cw = scf_provider()
+    if cw:
+        return cw.expand(control_ids)
+    nist = nist_for_controls(control_ids)
+    hipaa = hipaa_for_controls(control_ids)
+    out: dict[str, list[str]] = {}
+    if nist:
+        out["nist_csf"] = nist
+    if hipaa:
+        out["hipaa"] = hipaa
+    return out
 
 
 def validate_controls(control_ids: list[str]) -> list[str]:
