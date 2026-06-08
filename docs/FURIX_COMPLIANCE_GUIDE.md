@@ -366,6 +366,61 @@ remaining work is **additive, not a rewrite.**
    [ ] SOC 2 / ISO 27001 for the product itself
 ```
 
+## E5. Whose playbook are we following — and the exact steps to match each
+
+Furix's job is **mapping events/findings to controls across frameworks**. That is
+the GRC/crosswalk problem (Drata, SCF) — *not* the scanner problem (Tenable,
+Qualys). So we follow different giants for different parts:
+
+```
+   OUR CORE JOB (event → controls)         →  follow  SCF + OSCAL  (data)
+                                              and     Drata        (pipeline)
+   DETECTION CONTENT (what fires a rule)    →  follow  Sigma + ATT&CK
+   CONFIG-STATE ("is the control ON?")      →  follow  Tenable / Qualys (SCAP/OVAL)
+```
+
+Concrete steps to reach each giant's level:
+
+### To reach DRATA level (closest to what we do — our priority)
+```
+   1. Replace hand-typed crosswalk with SCF OSCAL JSON (200+ frameworks).
+   2. Keep SecureBERT embeddings (Tier 3); calibrate the floor on a held-out set.
+   3. Add LLM-generated, READ-ONLY explanations per mapping (Drata's exact pattern).
+   4. Add a human-review queue for low-confidence / novel mappings.
+   5. Measure first-pass accuracy on a held-out benchmark → target their 93%+.
+   We already have tiers 2/3/4 in this shape; steps 1, 3, 5 close the gap.
+```
+
+### To reach TENABLE / QUALYS level (the config-state half we lack)
+```
+   1. Adopt OpenSCAP/OVAL for host config checks; OPA/Rego for cloud
+      (cloud_compliance.rego is the seed).
+   2. Ingest SCAP DataStreams (XCCDF + OVAL) for CIS Benchmarks / DISA STIGs.
+   3. Emit pass/fail/NA per rule + an XCCDF-style compliance scorecard.
+   4. Key each finding (CCE / rule-id) to SCF/OSCAL control IDs → feeds Tier 1.
+   This adds the "is the control actually implemented?" capability we don't have.
+```
+
+### To reach OSCAL / FedRAMP level (state-of-the-art, mandated 2026–27)
+```
+   1. Represent catalogs in OSCAL; implement deterministic profile resolution.
+   2. Emit OSCAL Assessment Results + POA&M from the engine.
+   3. This is exactly what FedRAMP RFC-0024 will require.
+```
+
+### To reach SIGMA / MITRE ATT&CK level (maintainable detections)
+```
+   1. Replace bespoke keyword regex with Sigma rules (YAML, versioned, testable).
+   2. Tag each rule with a MITRE ATT&CK technique.
+   3. Crosswalk ATT&CK techniques → NIST 800-53 (published mapping) → feeds Tier 1.
+```
+
+**Bottom line on "who we follow":** for our core mapping job we are already on the
+**SCF + Drata** playbook and match its architecture; the work is to load their
+*content* (SCF/OSCAL) and prove their *accuracy* (held-out benchmark). We adopt
+**Tenable/Qualys (SCAP/OVAL)** only to add config-state checking, and **OSCAL** to
+become the machine-readable, FedRAMP-ready standard.
+
 ---
 
 # PART F — REFERENCE
