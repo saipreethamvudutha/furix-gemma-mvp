@@ -50,13 +50,15 @@ KW = {
     "Control 16": r"sql injection|\bsqli\b|modsecurity|\bwaf\b|remote code execution|\brce\b|\bxss\b|directory traversal",
 }
 # ── Behavioural signals: the boolean fingerprint of an event ─────────────────
+# Same word-boundary discipline as KW: bare "c2" used to match "eC2.amazonaws",
+# making benign EC2 reads look like C2/exfil and wrongly escalate to the LLM.
 SIG = {
-    "malware":              r"mimikatz|beacon|cobalt|ransom|encrypt\.exe|payload|malware|powershell -enc",
-    "c2_or_exfil":          r"c2|exfil|getsecretvalue|/stage2|malicious-domain|filedownloaded",
-    "privilege_escalation": r"sudo|privilege|sebackup|escalat|4672|roles/owner|global admin|super admin",
-    "account_creation":     r"useradd|net user|createuser|4720|provision\.user|add member|backdoor",
-    "lateral_movement":     r"lateral|psexec|netbios|3389|smb|eternalblue",
-    "failed_logins":        r"failed password|invalid user|4625|res=failed|authentication_failed",
+    "malware":              r"mimikatz|\bbeacon\b|cobalt|ransom|encrypt\.exe|payload\.(sh|ps1|exe)|\bmalware\b|powershell\s+-?enc",
+    "c2_or_exfil":          r"\bc2\b|command and control|\bexfil|exfiltrat|getsecretvalue|/stage2|malicious-domain|malware-c2|filedownloaded|data-exfil",
+    "privilege_escalation": r"\bsudo\b|privilege escalat|\bescalat|sebackup|\b4672\b|roles/owner|global admin|super admin",
+    "account_creation":     r"\buseradd\b|net user .*\/add|createuser|\b4720\b|provision\.?user|add member to role|\bbackdoor\b",
+    "lateral_movement":     r"lateral movement|psexec|netbios|\b3389\b|\bsmb\b|eternalblue",
+    "failed_logins":        r"failed password|invalid user|\b4625\b|res=failed|authentication_failed",
     "successful_logins":    r"accepted publickey|consolelogin.{0,30}success|loggedin|aaa user authentication successful",
 }
 

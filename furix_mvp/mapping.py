@@ -37,6 +37,12 @@ TIER_CROSSWALK = "crosswalk_table"        # Tier 1
 TIER_RULES = "deterministic_rules"        # Tier 2
 TIER_EMBEDDING = "embedding_similarity"   # Tier 3  (ML, not LLM)
 TIER_LLM = "llm_fallback"                 # Tier 4  (non-authoritative)
+TIER_BENIGN = "benign_no_match"           # clean event, no applicable control
+
+# Deterministic risk signals (from C6). If NONE of these fire AND no rule matched
+# AND no IOC hit, the event is benign — we do NOT burn an LLM call on it.
+_RISK_SIGNALS = ("malware", "c2_or_exfil", "privilege_escalation",
+                 "account_creation", "lateral_movement", "failed_logins")
 
 
 def _embedding_controls(ground: dict, floor: float) -> list[str]:
@@ -92,6 +98,14 @@ def resolve(finding: dict, ground: dict | None = None,
     nist = nist_for_controls(controls)
     hipaa = hipaa_for_controls(controls)
 
+    # Any OTHER deterministic evidence of risk? (signals + IOC hits from C6).
+    # We escalate to the LLM ONLY for events that look risky but couldn't be
+    # mapped — never for benign traffic (that would burn an LLM call on noise).
+    signals = finding.get("signals", {})
+    has_risk = any(signals.get(k) for k in _RISK_SIGNALS)
+    intel = finding.get("intel", {})
+    has_ioc = bool(intel.get("ioc_hits") or intel.get("ioc_hit_count"))
+
     # Confidence + which tier "won". Rules are exact pattern hits → highest.
     if rule_controls and embed_controls:
         confidence, primary = 0.95, TIER_RULES
@@ -99,13 +113,19 @@ def resolve(finding: dict, ground: dict | None = None,
         confidence, primary = 0.90, TIER_RULES
     elif embed_controls:
         confidence, primary = 0.70, TIER_EMBEDDING
+    elif has_risk or has_ioc:
+        confidence, primary = 0.0, None            # unknown-but-suspicious → LLM
     else:
-        confidence, primary = 0.0, None
+        confidence, primary = 0.0, TIER_BENIGN     # benign / no applicable control
 
-    needs_llm = not controls
+    needs_llm = (not controls) and (has_risk or has_ioc)
+    benign = (not controls) and not needs_llm
+
     tiers_used = sorted({t for ts in provenance.values() for t in ts})
     if controls:
         tiers_used.append(TIER_CROSSWALK)
+    elif benign:
+        tiers_used = [TIER_BENIGN]
 
     return {
         "control_ids": controls,
@@ -116,8 +136,11 @@ def resolve(finding: dict, ground: dict | None = None,
         "provenance": {c: provenance[c] for c in controls},
         "confidence": round(confidence, 2),
         "needs_llm": needs_llm,
+        # Both a matched mapping and a benign "no applicable control" are
+        # authoritative; only the unknown-but-suspicious case defers to the LLM.
         "authoritative": not needs_llm,
-        "rationale": _rationale(rule_controls, embed_controls, controls),
+        "benign": benign,
+        "rationale": _rationale(rule_controls, embed_controls, controls, benign),
     }
 
 
@@ -156,10 +179,13 @@ def merge_llm_suggestion(det: dict, llm_output: dict | None) -> dict:
 
 
 def _rationale(rule_controls: list[str], embed_controls: list[str],
-               controls: list[str]) -> str:
+               controls: list[str], benign: bool = False) -> str:
     if not controls:
-        return ("No deterministic rule or embedding match — event is novel; "
-                "escalating to LLM fallback for a reviewable suggestion.")
+        if benign:
+            return ("No rule or embedding match and no deterministic risk signals "
+                    "— treated as benign (no applicable control); LLM not consulted.")
+        return ("No rule/embedding match but risk signals are present — escalating "
+                "to LLM fallback for a reviewable suggestion (non-authoritative).")
     parts = []
     if rule_controls:
         named = ", ".join(CIS_CONTROLS.get(c, c) for c in rule_controls[:3])

@@ -32,6 +32,26 @@ from furix_mvp.containers import c6_normaliser as c6     # noqa: E402
 
 GOLD = Path(__file__).with_name("gold_set.jsonl")
 USE_RAG = "--rag" in sys.argv or os.environ.get("RAG_ENABLED") == "1"
+# --pipeline routes each event through the REAL brain.analyze() (rules + crosswalk
+# + embeddings + the conditional LLM fallback), not just mapping.resolve(). Use it
+# to catch pipeline-level bugs the resolver-only test can't see (e.g. benign
+# events wrongly escalating to the LLM).
+USE_PIPELINE = "--pipeline" in sys.argv
+
+
+def _predict(ev: dict) -> dict:
+    """Return {control_ids, provenance, primary_tier, llm} for one event."""
+    if USE_PIPELINE:
+        from furix_mvp import brain
+        rec = brain.analyze(ev["raw"], ev.get("log_type", "auto"))
+        c = rec["compliance"]
+        return {"control_ids": rec["verdict"]["control_ids"],
+                "provenance": c.get("provenance", {}),
+                "primary_tier": c.get("primary_tier"),
+                "needs_llm": c.get("llm_used")}
+    finding = c6.normalise(ev["raw"], ev.get("log_type", "auto"))
+    ground = _ground_for(ev["raw"], finding)
+    return mapping.resolve(finding, ground)
 
 
 def _load_gold() -> list[dict]:
@@ -56,10 +76,11 @@ def main() -> None:
     per_tier = defaultdict(lambda: {"tp": 0, "fp": 0})
     benign_total = benign_fp = 0
 
+    llm_calls = 0
     for ev in gold:
-        finding = c6.normalise(ev["raw"], ev.get("log_type", "auto"))
-        ground = _ground_for(ev["raw"], finding)
-        res = mapping.resolve(finding, ground)
+        res = _predict(ev)
+        if res.get("needs_llm"):
+            llm_calls += 1
         pred = set(res["control_ids"])
         truth = set(ev["controls"])
         prov = res.get("provenance", {})
@@ -94,12 +115,14 @@ def main() -> None:
     f1 = 2 * prec * rec / (prec + rec) if (prec + rec) else 0.0
 
     # ── report ───────────────────────────────────────────────────────────────
+    mode = "REAL brain.analyze() pipeline" if USE_PIPELINE else "mapping.resolve() resolver"
     print("=" * 72)
-    print(f"COMPLIANCE MAPPING ACCURACY  (embedding tier: {'ON' if USE_RAG else 'OFF'})")
+    print(f"COMPLIANCE MAPPING ACCURACY  (path: {mode}; embeddings: {'ON' if USE_RAG else 'OFF'})")
     print("=" * 72)
     print(f"events={len(gold)}  TP={tp}  FP={fp}  FN={fn}")
     print(f"micro precision={prec:.2f}  recall={rec:.2f}  F1={f1:.2f}")
     print(f"benign false-positive rate: {benign_fp}/{benign_total} clean events got controls")
+    print(f"LLM calls: {llm_calls}/{len(gold)} events escalated to the LLM fallback")
     print()
     print("PER-CONTROL  (sorted by problems: FP+FN desc)")
     print(f"  {'control':<12} {'TP':>3} {'FP':>3} {'FN':>3}  prec  rec")
