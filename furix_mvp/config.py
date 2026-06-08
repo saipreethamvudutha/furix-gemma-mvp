@@ -55,11 +55,14 @@ COMPLIANCE_LLM_FALLBACK = _bool("COMPLIANCE_LLM_FALLBACK", "1")
 # confident deterministic mapping (Tier 3). Reuses the RAG floor by default.
 MAPPING_EMBED_FLOOR = float(os.environ.get("MAPPING_EMBED_FLOOR",
                                            os.environ.get("RAG_SCORE_FLOOR", "0.30")))
-# Phase 1.1 — path to an SCF catalog CSV export (free from securecontrolsframework.com).
-# When set + present, compliance mapping uses the authoritative SCF crosswalk
-# (200+ frameworks, STRM-typed) instead of the small built-in tables. Unset = the
-# engine uses its built-in CIS->NIST/HIPAA tables. See docs/SCF_INTEGRATION.md.
-SCF_CSV_PATH = os.environ.get("SCF_CSV_PATH", "")
+# Phase 1.1 — path to an SCF export (free, machine-readable). Accepts the official
+# SCF "JSON_Data" export (.json, the real 1,090-control / 200+-framework data from
+# the SCF OSCAL GitHub repo) OR a simple catalog CSV. When set + present, compliance
+# mapping uses the authoritative SCF crosswalk instead of the small built-in tables.
+# Unset = built-in CIS->NIST/HIPAA tables. Fetch with scripts/fetch_scf.py.
+# See docs/SCF_INTEGRATION.md. (SCF_CSV_PATH kept as a back-compat alias.)
+SCF_PATH = os.environ.get("SCF_PATH", "") or os.environ.get("SCF_CSV_PATH", "")
+SCF_CSV_PATH = SCF_PATH  # back-compat alias
 
 # ── Orchestration ─────────────────────────────────────────────────────────────
 ALL_AGENTS = ["risk_scorer", "compliance_mapper", "remediation_generator",

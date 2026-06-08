@@ -23,22 +23,28 @@ result is deterministic (same input → same mapping).
 - `furix_mvp/mapping.py` — the resolver now returns a `frameworks` block spanning
   every SCF framework (NIST CSF/800-53, HIPAA, ISO 27001, PCI-DSS, SOC 2, …).
 
-## Drop-in steps
+## Drop-in steps (real data, one command)
 
-1. Download the SCF (free): https://securecontrolsframework.com/free-content/scf-download
-2. Open the workbook, export the **catalog tab** to CSV (keep the header row).
-   The loader auto-detects common SCF column names (NIST CSF, CIS, HIPAA, ISO,
-   PCI, SOC 2). Adjust `DEFAULT_COLUMN_MAP` in `scf_loader.py` if your release
-   uses different headers.
-3. Point the engine at it:
-   ```bash
-   export SCF_CSV_PATH=/path/to/scf_catalog.csv
-   ```
-4. Verify:
-   ```bash
-   python -c "from furix_mvp import compliance; print(compliance.crosswalk_source())"
-   # -> scf:/path/to/scf_catalog.csv   (vs 'builtin' when unset)
-   ```
+The SCF publishes machine-readable **JSON on GitHub** (no registration). Fetch it:
+
+```bash
+python scripts/fetch_scf.py
+# downloads the latest SCF "JSON_Data" (1,090 controls, 200+ frameworks)
+# into data/scf/scf_catalog.json  (gitignored — SCF is CC-BY-ND, we fetch not commit)
+
+export SCF_PATH=$(pwd)/data/scf/scf_catalog.json
+python -c "from furix_mvp import compliance; print(compliance.crosswalk_source())"
+# -> scf:.../scf_catalog.json     (vs 'builtin' when unset)
+```
+
+`SCF_PATH` accepts either the official **JSON_Data export** (`.json`, the real
+GitHub data) or a simple **catalog CSV** — the loader dispatches by extension. The
+loader auto-detects SCF column names (which contain newlines and vary by release);
+extend `DEFAULT_JSON_COLUMN_MAP` / `DEFAULT_COLUMN_MAP` in `scf_loader.py` if a new
+release renames columns.
+
+Source repo: https://github.com/runyx1325/scf-oscal-catalog-model (SCF↔OSCAL,
+maintained with Ignyte). Original: https://securecontrolsframework.com/scf-download/
 
 ## What you get
 

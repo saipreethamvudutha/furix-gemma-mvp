@@ -108,7 +108,8 @@ def scf_provider():
     _scf_cache["loaded"] = True
     try:
         from . import config
-        path = getattr(config, "SCF_CSV_PATH", "") or ""
+        path = (getattr(config, "SCF_PATH", "") or
+                getattr(config, "SCF_CSV_PATH", "") or "")
         if path:
             import os
             if os.path.exists(path):
