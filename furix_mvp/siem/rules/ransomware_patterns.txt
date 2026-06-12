@@ -1,0 +1,19 @@
+# Ransomware signature patterns
+\.encrypted$
+\.locked$
+\.crypto$
+\.crypt$
+\.wnry$
+\.wncry$
+\.locky$
+\.zepto$
+\.cerber$
+READ_ME.*\.txt
+DECRYPT_INSTRUCTIONS
+YOUR_FILES_ARE_ENCRYPTED
+how_to_decrypt
+recover_files
+\.onion
+vssadmin\s+delete\s+shadows
+wbadmin\s+delete\s+catalog
+bcdedit\s+/set.*recoveryenabled\s+no

@@ -13,11 +13,17 @@ bundles/
 vbundles/
 *.zip
 
+# Trained SIEM model artifacts (built locally via `python -m furix_mvp.siem.train`)
+furix_mvp/siem/models/*.pkl
+furix_mvp/siem/models/ueba/*.pkl
+furix_mvp/siem/models/ueba/*.json
+
 # Editor / OS / harness
 .claude/
 .DS_Store
 
 # SCF data (CC-BY-ND — fetched via scripts/fetch_scf.py, not committed)
-data/
+# Anchored to the repo root so it doesn't also ignore furix_mvp/siem/data/.
+/data/
 # eval report artifact
 tests/eval/last_report.json

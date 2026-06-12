@@ -45,6 +45,13 @@ def _startup() -> None:
 # ── UI ────────────────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
+    # New sidebar dashboard (SIEM now; Scan / Compliance to follow).
+    return (_STATIC / "dashboard.html").read_text(encoding="utf-8")
+
+
+@app.get("/legacy", response_class=HTMLResponse)
+def legacy() -> str:
+    # The original single-page event analyzer.
     return (_STATIC / "index.html").read_text(encoding="utf-8")
 
 
@@ -146,6 +153,93 @@ def backups() -> dict:
 @app.get("/api/samples")
 def samples() -> dict:
     return {"samples": dict(SAMPLE_LOGS)}
+
+
+# ── SIEM pipeline (Module 9) — background jobs + live progress ─────────────────
+# Importing siem.jobs is light (the heavy ML stack loads only when a job runs).
+from .siem import jobs as siem_jobs
+from .siem.samples import SIEM_SAMPLE
+
+
+class SiemAnalyzeRequest(BaseModel):
+    text: str                       # raw log text (uploaded file content or pasted)
+    source: str = "upload"
+    limit: int | None = None
+    min_confidence: float = 0.0     # dashboard reports top campaigns regardless of gate
+
+
+@app.post("/api/siem/analyze")
+def siem_analyze(req: SiemAnalyzeRequest) -> dict:
+    """Submit raw logs → runs the SIEM pipeline on a background thread. Poll the
+    job for live step-by-step progress and the final campaign analysis."""
+    job_id = siem_jobs.manager.submit(
+        req.text, source=req.source, limit=req.limit, min_confidence=req.min_confidence)
+    return {"job_id": job_id}
+
+
+@app.get("/api/siem/jobs")
+def siem_jobs_list() -> dict:
+    return {"jobs": [j.summary() for j in siem_jobs.manager.list()]}
+
+
+@app.get("/api/siem/jobs/{job_id}")
+def siem_job_detail(job_id: str) -> dict:
+    job = siem_jobs.manager.get(job_id)
+    if job is None:
+        return {"error": "not_found", "job_id": job_id}
+    return job.detail()
+
+
+@app.get("/api/siem/sample")
+def siem_sample() -> dict:
+    return {"text": SIEM_SAMPLE}
+
+
+# Training — builds the ML + UEBA pickles so the aggregator activates those two
+# guarded-off lanes. Runs on a background thread; the dashboard polls status.
+import threading as _threading
+_train_state = {"status": "idle", "detail": "", "error": None}
+_train_lock = _threading.Lock()
+
+
+def _run_training(synthetic: int, logs_text: str | None) -> None:
+    from .siem.train import train_models
+
+    def _pr(k: str, s: str, d: str) -> None:
+        if s in ("running", "done"):
+            with _train_lock:
+                _train_state["detail"] = f"{k}: {d}"
+    try:
+        train_models(synthetic=synthetic, logs_text=logs_text, progress=_pr)
+        with _train_lock:
+            _train_state.update(status="done", detail="models trained", error=None)
+    except Exception as exc:   # noqa: BLE001 — surface to the UI
+        with _train_lock:
+            _train_state.update(status="error", error=f"{type(exc).__name__}: {exc}")
+
+
+@app.post("/api/siem/train")
+def siem_train(body: dict | None = None) -> dict:
+    """Kick off (background) training of the ML + UEBA lanes."""
+    body = body or {}
+    with _train_lock:
+        if _train_state["status"] == "running":
+            return {"status": "running"}
+        _train_state.update(status="running", detail="starting", error=None)
+    _threading.Thread(
+        target=_run_training,
+        args=(int(body.get("synthetic", 840)), body.get("logs_text")),
+        daemon=True,
+    ).start()
+    return {"status": "started"}
+
+
+@app.get("/api/siem/status")
+def siem_status() -> dict:
+    from .siem.train import models_status
+    with _train_lock:
+        training = dict(_train_state)
+    return {"models": models_status(), "training": training}
 
 
 if _STATIC.exists():

@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Furix · Security Console</title>
+<style>
+  :root{
+    --bg:#0b0f17; --panel:#121826; --panel2:#0f1521; --line:#1f2937;
+    --txt:#e5e9f0; --mut:#8b97ab; --acc:#4f8cff; --ok:#34d399; --warn:#fbbf24;
+    --crit:#f87171; --info:#60a5fa; --sidebar:#0c121e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+       font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  a{color:var(--acc);text-decoration:none}
+  .app{display:grid;grid-template-columns:236px 1fr;min-height:100vh}
+
+  /* ── Sidebar ───────────────────────────────────────────────── */
+  .side{background:var(--sidebar);border-right:1px solid var(--line);display:flex;
+        flex-direction:column;padding:16px 12px;position:sticky;top:0;height:100vh}
+  .brand{font-size:16px;font-weight:700;letter-spacing:.3px;padding:6px 10px 16px}
+  .brand span{color:var(--acc)}
+  .nav{display:flex;flex-direction:column;gap:3px}
+  .nav button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+       background:transparent;border:0;color:var(--mut);font:inherit;font-size:13.5px;
+       padding:9px 11px;border-radius:8px;cursor:pointer}
+  .nav button:hover{background:#11192a;color:var(--txt)}
+  .nav button.active{background:#16203450;color:var(--txt);box-shadow:inset 2px 0 0 var(--acc)}
+  .nav button .ico{width:16px;text-align:center;opacity:.9}
+  .nav button.soon{opacity:.5;cursor:not-allowed}
+  .nav button .tag{margin-left:auto;font-size:9px;border:1px solid var(--line);border-radius:5px;
+       padding:1px 5px;color:var(--mut)}
+  .side .foot{margin-top:auto;padding:10px 8px 2px;border-top:1px solid var(--line);
+       font-size:11px;color:var(--mut)}
+  .hbadge{display:flex;align-items:center;gap:7px;margin-bottom:7px}
+  .hdot{width:8px;height:8px;border-radius:50%;background:var(--mut)}
+  .hdot.ok{background:var(--ok)} .hdot.bad{background:var(--crit)}
+
+  /* ── Main ──────────────────────────────────────────────────── */
+  .main{padding:0 0 60px}
+  .top{display:flex;align-items:center;gap:12px;padding:16px 26px;border-bottom:1px solid var(--line);
+       background:var(--panel2);position:sticky;top:0;z-index:5}
+  .top h1{font-size:17px;margin:0;font-weight:650}
+  .top .sub{color:var(--mut);font-size:12.5px}
+  .view{padding:22px 26px;max-width:1180px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+  .card h2{font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--mut);margin:0 0 12px}
+  .muted{color:var(--mut)}
+  button.btn{cursor:pointer;background:var(--acc);border:1px solid var(--acc);color:#fff;font:inherit;
+       font-weight:600;border-radius:8px;padding:9px 16px}
+  button.btn.ghost{background:transparent;color:var(--txt);border-color:var(--line)}
+  button.btn:disabled{opacity:.5;cursor:not-allowed}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .drop{border:1.5px dashed var(--line);border-radius:10px;padding:18px;text-align:center;color:var(--mut);
+        background:var(--panel2);cursor:pointer}
+  .drop.hot{border-color:var(--acc);color:var(--txt)}
+  .pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:11px;font-weight:700;text-transform:uppercase}
+  .sev-critical{background:#3b0d0d;color:var(--crit)} .sev-high{background:#3a1d05;color:#fb923c}
+  .sev-medium{background:#3a3408;color:var(--warn)} .sev-low{background:#0c2a4a;color:var(--info)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  .chip{font-size:11px;background:#0d1320;border:1px solid var(--line);border-radius:6px;padding:2px 8px;color:#bcd0f0}
+  .lane{font-size:12px;padding:4px 11px;border-radius:999px;border:1px solid var(--line);background:#0d1320;color:var(--mut)}
+  .lane.on{color:var(--ok);border-color:#14532d} .lane.off{color:var(--mut)}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px}
+  .stat{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px}
+  .stat .k{font-size:11px;color:var(--mut)} .stat .v{font-size:20px;font-weight:700;margin-top:2px}
+
+  /* ── Step tracker ──────────────────────────────────────────── */
+  .steps{display:flex;flex-direction:column;gap:2px}
+  .step{display:flex;align-items:flex-start;gap:12px;padding:9px 8px;border-radius:8px}
+  .step .mark{width:20px;height:20px;border-radius:50%;border:2px solid var(--line);flex:0 0 auto;
+       display:flex;align-items:center;justify-content:center;font-size:11px;margin-top:1px;color:var(--mut)}
+  .step .lab{font-weight:600;font-size:13.5px}
+  .step .det{color:var(--mut);font-size:12px}
+  .step.running{background:#101a2e} .step.running .mark{border-color:var(--acc);color:var(--acc);
+       border-right-color:transparent;animation:spin .8s linear infinite}
+  .step.done .mark{border-color:var(--ok);color:var(--ok)}
+  .step.skipped .mark{border-color:var(--line);color:var(--mut)}
+  .step.error .mark{border-color:var(--crit);color:var(--crit)}
+  .step .when{margin-left:auto;font-size:11px;color:var(--mut)}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* ── Report ────────────────────────────────────────────────── */
+  .rep{border:1px solid var(--line);border-radius:12px;margin-bottom:16px;overflow:hidden}
+  .rep .head{display:flex;align-items:center;gap:12px;padding:14px 16px;background:#0e1626;border-bottom:1px solid var(--line)}
+  .rep .head .ttl{font-weight:680;font-size:15px}
+  .rep .head .meta{margin-left:auto;font-size:11px;color:var(--mut);text-align:right}
+  .rep .body{padding:4px 16px 14px}
+  .sec{padding:13px 0;border-bottom:1px solid var(--line)}
+  .sec:last-child{border-bottom:0}
+  .sec h3{font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--mut);margin:0 0 8px}
+  .kv{display:grid;grid-template-columns:140px 1fr;gap:4px 12px;font-size:13px}
+  .kv .k{color:var(--mut)}
+  .beats{display:flex;flex-direction:column;gap:0}
+  .beat{display:grid;grid-template-columns:54px 150px 1fr;gap:10px;padding:7px 0;border-top:1px solid #16203450;font-size:13px}
+  .beat .t{color:var(--info);font-variant-numeric:tabular-nums}
+  .beat .st{color:var(--warn);font-size:12px}
+  .acts{margin:0;padding-left:18px} .acts li{margin:3px 0;font-size:13px}
+  table.ev{width:100%;border-collapse:collapse;font-size:12.5px}
+  table.ev th{text-align:left;color:var(--mut);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  table.ev td{padding:6px 8px;border-bottom:1px solid #16203430;vertical-align:top}
+  .risk-score{font-size:30px;font-weight:800;line-height:1}
+  details summary{cursor:pointer;color:var(--mut);font-size:12px;margin-top:6px}
+  .src{font-size:10px;padding:1px 6px;border-radius:5px;background:#0d1320;border:1px solid var(--line)}
+  .src.live{color:var(--ok)} .src.mock{color:var(--warn)}
+  .jobs{display:flex;flex-direction:column;gap:6px}
+  .job{display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;
+       background:var(--panel2);cursor:pointer;font-size:12.5px}
+  .job:hover{border-color:var(--acc)} .job.sel{border-color:var(--acc);background:#101a2e}
+  .job .jid{font-family:ui-monospace,Menlo,monospace}
+  .job .jst{margin-left:auto;font-size:11px}
+  .st-running{color:var(--acc)} .st-done{color:var(--ok)} .st-error{color:var(--crit)} .st-queued{color:var(--mut)}
+  .empty{color:var(--mut);text-align:center;padding:34px}
+  .err{color:var(--crit);font-size:12.5px;margin-top:8px}
+  .soon-box{color:var(--mut);text-align:center;padding:60px 20px}
+  .soon-box .big{font-size:40px;opacity:.4}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="side">
+    <div class="brand">Furix <span>Console</span></div>
+    <nav class="nav" id="nav">
+      <button data-view="overview" class="active"><span class="ico">▦</span> Overview</button>
+      <button data-view="siem"><span class="ico">◎</span> SIEM</button>
+      <button data-view="scan" class="soon"><span class="ico">⊕</span> Scan <span class="tag">soon</span></button>
+      <button data-view="compliance" class="soon"><span class="ico">✓</span> Compliance <span class="tag">soon</span></button>
+    </nav>
+    <div class="foot">
+      <div class="hbadge"><span class="hdot" id="hdot"></span><span id="hlabel">checking…</span></div>
+      <div><a href="/legacy">Event analyzer →</a></div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="top">
+      <div>
+        <h1 id="title">Overview</h1>
+        <div class="sub" id="subtitle">Furix security console</div>
+      </div>
+    </div>
+
+    <!-- Overview view -->
+    <section class="view" id="view-overview">
+      <div class="card">
+        <h2>Welcome</h2>
+        <p>This console runs the Furix detection pipelines against your in-house Gemma model.
+           Pick a workflow from the sidebar.</p>
+        <div class="stats" style="margin-top:12px">
+          <div class="stat"><div class="k">SIEM</div><div class="v">●</div><div class="muted" style="font-size:11px">Log campaign analysis</div></div>
+          <div class="stat"><div class="k">Scan</div><div class="v" style="opacity:.4">○</div><div class="muted" style="font-size:11px">Coming soon</div></div>
+          <div class="stat"><div class="k">Compliance</div><div class="v" style="opacity:.4">○</div><div class="muted" style="font-size:11px">Coming soon</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>How SIEM works</h2>
+        <p class="muted">Upload security logs (or load the sample). The backend normalises them to ECS,
+           fans each event through the rule / UEBA / ML detector lanes, accumulates per-entity risk,
+           correlates multi-stage campaigns, scrubs PII, and asks Gemma for an incident report.
+           You watch every step happen live.</p>
+      </div>
+    </section>
+
+    <!-- SIEM view -->
+    <section class="view" id="view-siem" style="display:none">
+      <div class="card">
+        <h2>Analyze security logs</h2>
+        <div id="drop" class="drop">⬆ Drop a log file here, or click to choose &nbsp;·&nbsp; raw vendor logs / ECS JSONL</div>
+        <input type="file" id="file" style="display:none" accept=".log,.jsonl,.json,.txt"/>
+        <div class="row" style="margin-top:12px">
+          <button class="btn" id="run">▶ Analyze</button>
+          <button class="btn ghost" id="sample">Load sample campaign</button>
+          <span class="muted" id="srcinfo">No data loaded</span>
+        </div>
+        <div class="err" id="err"></div>
+      </div>
+
+      <div class="card" id="modelsCard">
+        <h2>Detector lanes</h2>
+        <div class="row" id="laneChips"></div>
+        <div class="row" style="margin-top:12px">
+          <button class="btn ghost" id="trainBtn">⚙ Train baseline models</button>
+          <span class="muted" id="trainInfo">UEBA &amp; ML need a one-time baseline train to go live.</span>
+        </div>
+      </div>
+
+      <div class="card" id="trackerCard" style="display:none">
+        <h2>Pipeline <span id="trackerJob" class="muted" style="text-transform:none;letter-spacing:0"></span></h2>
+        <div class="stats" id="trackerStats" style="margin-bottom:14px"></div>
+        <div class="steps" id="steps"></div>
+      </div>
+
+      <div id="results"></div>
+
+      <div class="card">
+        <h2>Recent jobs</h2>
+        <div class="jobs" id="jobsList"><div class="empty">No jobs yet</div></div>
+      </div>
+    </section>
+
+    <!-- Placeholder views -->
+    <section class="view" id="view-scan" style="display:none">
+      <div class="card"><div class="soon-box"><div class="big">⊕</div><p>Scan / vulnerability prioritisation — coming soon.</p></div></div>
+    </section>
+    <section class="view" id="view-compliance" style="display:none">
+      <div class="card"><div class="soon-box"><div class="big">✓</div><p>Compliance posture (CIS / NIST / HIPAA) — coming soon.</p></div></div>
+    </section>
+  </main>
+</div>
+
+<script>
+const $ = (id)=>document.getElementById(id);
+const esc = (s)=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const sevClass = (s)=>'sev-'+String(s||'low').toLowerCase();
+const TITLES = {overview:['Overview','Furix security console'], siem:['SIEM','Detect & correlate attack campaigns from logs'],
+                scan:['Scan','Vulnerability prioritisation'], compliance:['Compliance','Control posture']};
+
+let loadedText='', loadedSource='', curJob=null, pollTimer=null;
+
+// ── Nav ──────────────────────────────────────────────────────────
+$('nav').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b||b.classList.contains('soon'))return;
+  document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  const v=b.dataset.view;
+  document.querySelectorAll('.view').forEach(x=>x.style.display='none');
+  $('view-'+v).style.display='';
+  $('title').textContent=TITLES[v][0]; $('subtitle').textContent=TITLES[v][1];
+});
+
+// ── Input: file / drop / sample ──────────────────────────────────
+const drop=$('drop');
+drop.addEventListener('click',()=>$('file').click());
+$('file').addEventListener('change',e=>{const f=e.target.files[0];if(f)readFile(f);});
+['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('hot');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('hot');}));
+drop.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f)readFile(f);});
+function readFile(f){const r=new FileReader();r.onload=()=>{loadedText=r.result;loadedSource=f.name;
+  $('srcinfo').textContent=`${f.name} · ${(f.size/1024).toFixed(1)} KB`;};r.readAsText(f);}
+
+$('sample').addEventListener('click',async()=>{
+  const r=await fetch('/api/siem/sample'); const j=await r.json();
+  loadedText=j.text; loadedSource='sample-campaign';
+  const lines=(j.text.trim().split('\n')).length;
+  $('srcinfo').textContent=`sample campaign · ${lines} log lines`;
+});
+
+// ── Run ──────────────────────────────────────────────────────────
+$('run').addEventListener('click',async()=>{
+  $('err').textContent='';
+  if(!loadedText.trim()){$('err').textContent='Load a log file or the sample first.';return;}
+  $('run').disabled=true;
+  try{
+    const r=await fetch('/api/siem/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text:loadedText,source:loadedSource})});
+    const j=await r.json();
+    curJob=j.job_id; $('results').innerHTML='';
+    startPolling(curJob);
+    refreshJobs();
+  }catch(e){$('err').textContent=String(e);}
+  finally{$('run').disabled=false;}
+});
+
+// ── Polling ──────────────────────────────────────────────────────
+function startPolling(id){
+  if(pollTimer)clearInterval(pollTimer);
+  const tick=async()=>{
+    const r=await fetch('/api/siem/jobs/'+id); const job=await r.json();
+    if(job.error){return;}
+    renderTracker(job);
+    if(job.status==='done'||job.status==='error'){
+      clearInterval(pollTimer);pollTimer=null;
+      if(job.status==='done')renderResults(job.result);
+      else $('results').innerHTML=`<div class="card err">Job failed: ${esc(job.error)}</div>`;
+      refreshJobs();
+    }
+  };
+  tick(); pollTimer=setInterval(tick,900);
+}
+
+const MARK={pending:'',running:'',done:'✓',skipped:'–',error:'✗'};
+function renderTracker(job){
+  $('trackerCard').style.display='';
+  $('trackerJob').textContent=`· ${job.id} · ${job.status}`;
+  const res=job.result||{};
+  const lanes=(res.active_lanes||[]).join(', ')||'—';
+  $('trackerStats').innerHTML=[
+    ['Events',res.events??'—'],['Bundles',res.bundles??'—'],
+    ['Candidates',res.candidates??'—'],['Campaigns',(res.campaigns||[]).length||'—'],
+    ['Lanes',lanes]
+  ].map(([k,v])=>`<div class="stat"><div class="k">${k}</div><div class="v" style="font-size:${k==='Lanes'?'13px':'20px'}">${esc(v)}</div></div>`).join('');
+  $('steps').innerHTML=(job.steps||[]).map(s=>`
+    <div class="step ${s.status}">
+      <div class="mark">${MARK[s.status]||''}</div>
+      <div><div class="lab">${esc(s.label)}</div><div class="det">${esc(s.detail||'')}</div></div>
+    </div>`).join('');
+}
+
+// ── Results ──────────────────────────────────────────────────────
+function renderResults(res){
+  if(!res){$('results').innerHTML='';return;}
+  const reports=res.reports||[], campaigns=res.campaigns||[];
+  let html='';
+  // summary
+  const sev=res.severity_summary||{};
+  html+=`<div class="card"><h2>Analysis summary</h2><div class="row">
+    <span class="muted">${campaigns.length} campaign(s) ·</span>
+    ${['CRITICAL','HIGH','MEDIUM','LOW'].filter(k=>sev[k]).map(k=>`<span class="pill ${sevClass(k)}">${sev[k]} ${k}</span>`).join(' ')}
+    ${campaigns.length===0?'<span class="muted">No campaigns correlated — no multi-event attack pattern found.</span>':''}
+    </div></div>`;
+  reports.forEach(rep=>html+=renderReport(rep));
+  // campaigns with no report
+  const reported=new Set(reports.map(r=>(r.campaign_context||{}).campaign_id));
+  campaigns.filter(c=>!reported.has(c.campaign_id)).forEach(c=>html+=renderCampaign(c));
+  $('results').innerHTML=html;
+}
+
+function renderReport(rep){
+  const cc=rep.campaign_context||{}, ex=rep.executive_summary||{}, ra=rep.risk_assessment||{},
+        rem=rep.remediation||{}, ae=rep.anomaly_explanation||{}, io=rep.iocs||{},
+        proc=rep.processing||{}, tl=rep.attack_timeline||[], ke=rep.key_evidence||[],
+        da=rep.detected_anomalies||[], br=rep.anomaly_severity_breakdown||{};
+  const live = proc.llm_status==='success' && proc.api_endpoint && !String(proc.api_endpoint).includes('mock');
+  const chips=(arr)=>(arr&&arr.length)?arr.map(x=>`<span class="chip">${esc(x)}</span>`).join(''):'<span class="muted">none</span>';
+  return `<div class="rep">
+    <div class="head">
+      <span class="pill ${sevClass(cc.severity||ra.severity)}">${esc(cc.severity||ra.severity||'—')}</span>
+      <span class="ttl">${esc(ex.title||cc.campaign_id||'Incident')}</span>
+      <span class="meta">${esc(cc.campaign_id||'')}<br/>${esc((cc.entity_count!=null?cc.entity_count+' entities · ':''))}${esc(cc.duration_minutes!=null?cc.duration_minutes+' min':'')}</span>
+    </div>
+    <div class="body">
+      <div class="sec"><h3>Executive summary</h3>
+        <p>${esc(ex.one_paragraph||'—')}</p>
+        <div class="kv">
+          <div class="k">Attack vector</div><div>${esc(ex.attack_vector||'—')}</div>
+          <div class="k">Blast radius</div><div>${esc(ex.blast_radius||'—')}</div>
+        </div>
+      </div>
+      <div class="sec"><h3>Risk assessment</h3>
+        <div class="row" style="align-items:flex-start;gap:20px">
+          <div><div class="risk-score">${esc(ra.score??'—')}</div><div class="muted" style="font-size:11px">risk score</div></div>
+          <div style="flex:1">
+            <div class="row"><span class="pill ${sevClass(ra.severity)}">${esc(ra.severity||'—')}</span>
+              <span class="muted">confidence ${esc(ra.confidence??cc.confidence??'—')}</span></div>
+            <p style="margin:8px 0 0">${esc(ra.justification||'')}</p>
+          </div>
+        </div>
+      </div>
+      <div class="sec"><h3>Attack timeline</h3>
+        <div class="beats">${tl.length?tl.map(b=>`<div class="beat">
+          <span class="t">${esc(b.time||'')}</span><span class="st">${esc(b.stage||'')}</span>
+          <span>${esc(b.event||'')} ${b.entity?`<span class="chip">${esc(b.entity)}</span>`:''}</span></div>`).join('')
+          :'<span class="muted">No timeline returned.</span>'}</div>
+      </div>
+      <div class="sec"><h3>Indicators of compromise</h3>
+        <div class="kv">
+          <div class="k">External IPs</div><div class="chips">${chips(io.external_ips)}</div>
+          <div class="k">MITRE techniques</div><div class="chips">${chips(io.mitre_techniques)}</div>
+          <div class="k">Affected assets</div><div class="chips">${chips(io.affected_assets)}</div>
+          <div class="k">Affected users</div><div class="chips">${chips(io.affected_users)}</div>
+        </div>
+      </div>
+      <div class="sec"><h3>Remediation</h3>
+        ${['immediate_actions','short_term_actions','long_term_actions'].map(k=>{
+          const a=rem[k]||[]; if(!a.length)return'';
+          const lbl={immediate_actions:'Immediate (1h)',short_term_actions:'Short term (24h)',long_term_actions:'Long term (30d)'}[k];
+          return `<div style="margin-bottom:8px"><div class="muted" style="font-size:12px;margin-bottom:2px">${lbl}</div>
+            <ul class="acts">${a.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`;}).join('')||'<span class="muted">—</span>'}
+      </div>
+      ${ke.length?`<div class="sec"><h3>Key evidence</h3>
+        <table class="ev"><tr><th>Rule</th><th>Entity</th><th>What it means</th><th>MITRE</th><th>Score</th></tr>
+        ${ke.map(e=>`<tr><td>${esc(e.rule||'')}</td><td>${esc(e.entity||'—')}</td>
+          <td>${esc(e.what_it_means||'')}</td><td>${esc(e.mitre_technique_id||'')} · ${esc(e.mitre_tactic||'')}</td>
+          <td>${esc(e.score??'')}</td></tr>`).join('')}</table></div>`:''}
+      ${ae.summary?`<div class="sec"><h3>Why the detectors fired</h3><p>${esc(ae.summary)}</p>
+        ${(ae.key_indicators||[]).map(k=>`<div style="margin-top:6px"><b>${esc(k.indicator||'')}</b> — ${esc(k.plain_english||'')}
+          <span class="muted">(${esc(k.mitre_context||'')})</span></div>`).join('')}</div>`:''}
+      ${da.length?`<div class="sec"><h3>Detected anomalies (${da.length})</h3>
+        <details><summary>show all rule-hit events · ${['CRITICAL','HIGH','MEDIUM','LOW'].filter(k=>br[k]).map(k=>br[k]+' '+k).join(' · ')}</summary>
+        <table class="ev" style="margin-top:8px"><tr><th>Sev</th><th>Time</th><th>Entity</th><th>Rule</th><th>MITRE</th></tr>
+        ${da.map(a=>`<tr><td><span class="pill ${sevClass(a.severity)}" style="font-size:9px">${esc(a.severity)}</span></td>
+          <td>${esc((a.timestamp||'').slice(11,19))}</td><td>${esc(a.entity||'—')}</td>
+          <td>${esc(a.primary_rule||'')}</td><td>${esc(a.mitre_technique_id||'')}</td></tr>`).join('')}</table></details></div>`:''}
+      <div class="sec" style="display:flex;align-items:center;gap:8px">
+        <span class="src ${live?'live':'mock'}">${live?'Gemma · live':'Gemma · mock'}</span>
+        <span class="muted" style="font-size:11px">${esc(proc.llm_model||'')} · ${esc(proc.api_endpoint||'')}</span>
+      </div>
+    </div>
+  </div>`;
+}
+
+// campaign without a Gemma report (scrubbed narrative — placeholders)
+function renderCampaign(c){
+  const io=c.iocs||{};
+  return `<div class="rep"><div class="head">
+      <span class="pill ${sevClass(c.severity)}">${esc(c.severity)}</span>
+      <span class="ttl">Campaign ${esc(c.campaign_id)}</span>
+      <span class="meta">${esc(c.entity_count)} entities · ${esc(c.duration_minutes)} min<br/>conf ${esc(c.confidence)}</span></div>
+    <div class="body"><div class="sec"><h3>Kill-chain stages</h3>
+      <div class="chips">${(c.kill_chain_coverage||[]).map(s=>`<span class="chip">stage ${esc(s)}</span>`).join('')||'—'}</div></div>
+      <div class="sec"><h3>Indicators</h3><div class="chips">
+        ${[...(io.external_ips||[]),...(io.mitre_techniques||[]),...(io.affected_assets||[])].map(x=>`<span class="chip">${esc(x)}</span>`).join('')||'—'}</div>
+      <p class="muted" style="margin-top:8px;font-size:12px">Below the Gemma report threshold — correlated detection shown without LLM narrative.</p></div>
+    </div></div>`;
+}
+
+// ── Recent jobs ──────────────────────────────────────────────────
+async function refreshJobs(){
+  try{
+    const r=await fetch('/api/siem/jobs'); const j=await r.json();
+    const jobs=j.jobs||[];
+    $('jobsList').innerHTML=jobs.length?jobs.map(job=>{
+      const sev=job.severity_summary||{};
+      const sevStr=['CRITICAL','HIGH'].filter(k=>sev[k]).map(k=>`${sev[k]} ${k}`).join(' ');
+      return `<div class="job ${job.id===curJob?'sel':''}" data-id="${job.id}">
+        <span class="jid">${esc(job.id)}</span>
+        <span class="muted">${esc(job.source)}</span>
+        <span class="muted">${job.steps_done}/${job.steps_total} steps</span>
+        ${sevStr?`<span class="chip">${esc(sevStr)}</span>`:''}
+        <span class="jst st-${job.status}">${esc(job.status)}</span></div>`;}).join('')
+      :'<div class="empty">No jobs yet</div>';
+    $('jobsList').querySelectorAll('.job').forEach(el=>el.addEventListener('click',()=>{
+      curJob=el.dataset.id; startPolling(curJob);
+      document.querySelector('#view-siem .card').scrollIntoView({behavior:'smooth'});
+    }));
+  }catch(e){}
+}
+
+// ── Health ───────────────────────────────────────────────────────
+async function health(){
+  try{
+    const r=await fetch('/api/health'); const j=await r.json();
+    const ok=j.llm&&j.llm.reachable;
+    $('hdot').className='hdot '+(ok?'ok':'bad');
+    $('hlabel').textContent=ok?`Gemma ${j.llm.mode||''}`:'Gemma unreachable';
+  }catch(e){$('hdot').className='hdot bad';$('hlabel').textContent='offline';}
+}
+
+// ── Detector lanes / training ────────────────────────────────────
+const LANES=[['signature_rules','Signature rules'],['ueba','UEBA baselines'],
+             ['ml_ensemble','ML ensemble · IForest+ECOD']];
+async function refreshStatus(){
+  try{
+    const r=await fetch('/api/siem/status'); const j=await r.json();
+    const on=new Set(j.models.active_lanes||[]); const tr=j.training||{};
+    $('laneChips').innerHTML=LANES.map(([k,lbl])=>{
+      const ready=on.has(k);
+      const suffix=k==='signature_rules'?' · ready':(ready?' · trained':' · untrained');
+      return `<span class="lane ${ready?'on':'off'}">${ready?'●':'○'} ${lbl}${suffix}</span>`;}).join('');
+    if(tr.status==='running'){$('trainBtn').disabled=true;$('trainInfo').textContent='Training… '+(tr.detail||'');}
+    else{$('trainBtn').disabled=false;
+      $('trainInfo').textContent = tr.status==='error' ? ('Failed: '+tr.error)
+        : (j.models.ml_ready&&j.models.ueba_ready ? 'All lanes trained ✓'
+        : 'UEBA & ML need a one-time baseline train to go live.');}
+    return tr.status;
+  }catch(e){}
+}
+$('trainBtn').addEventListener('click',async()=>{
+  $('trainBtn').disabled=true; $('trainInfo').textContent='Starting…';
+  await fetch('/api/siem/train',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  const t=setInterval(async()=>{const s=await refreshStatus(); if(s!=='running'){clearInterval(t);refreshStatus();}},1200);
+});
+
+health(); setInterval(health,15000);
+refreshJobs(); setInterval(refreshJobs,4000);
+refreshStatus(); setInterval(refreshStatus,8000);
+</script>
+</body>
+</html>

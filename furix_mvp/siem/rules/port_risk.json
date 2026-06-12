@@ -1,0 +1,8 @@
+{
+  "high_risk": [22, 23, 3389, 4444, 5900, 6667],
+  "medium_risk": [21, 25, 53, 110, 143, 512, 513, 514],
+  "low_risk": [80, 443, 8080, 8443],
+  "high_risk_score": 0.8,
+  "medium_risk_score": 0.5,
+  "low_risk_score": 0.1
+}

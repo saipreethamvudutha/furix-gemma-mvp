@@ -1,0 +1,18 @@
+# Shell command injection patterns
+;\s*(cat|ls|pwd|id|whoami|uname|wget|curl|bash|sh|nc|python|perl|ruby)\b
+\|\s*(cat|ls|id|whoami|uname|bash|sh|nc|python|wget|curl)\b
+`[^`]*`
+\$\([^)]*\)
+&&\s*(cat|ls|id|whoami|bash|sh|wget|curl|nc)
+/etc/passwd
+/etc/shadow
+/bin/sh
+/bin/bash
+cmd\.exe
+powershell
+>\s*/dev/null
+2>&1
+chmod\s+[0-7]{3,4}
+chown\s+root
+sudo\s+
+rm\s+-rf

@@ -1,0 +1,11 @@
+# JNDI injection patterns (Log4Shell and variants)
+\$\{jndi:
+jndi:(ldap|rmi|dns|iiop|corba|nds|http)://
+\$\{.*jndi.*\}
+\$\{lower:j\}
+\$\{::-j\}
+\$\{upper:j\}
+\$\{env:.*\}
+\$\{sys:.*\}
+\$\{java:.*\}
+\$\{log4j:

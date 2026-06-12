@@ -1,0 +1,348 @@
+[
+  {
+    "name": "known_bad_ip",
+    "layer": "A",
+    "boost": 40,
+    "mitre": "T1071",
+    "confidence": 0.95,
+    "description": "Source IP matches a known-bad indicator in the threat intel feed",
+    "check_type": "threat_intel",
+    "check_config": {}
+  },
+  {
+    "name": "protocol_app_mismatch",
+    "layer": "A",
+    "boost": 35,
+    "mitre": "T1571",
+    "confidence": 0.75,
+    "description": "Network protocol does not match the application or destination port",
+    "check_type": "custom_handler",
+    "check_config": { "handler": "check_protocol_app_mismatch" }
+  },
+  {
+    "name": "high_risk_port",
+    "layer": "A",
+    "boost": 25,
+    "mitre": "T1571",
+    "confidence": 0.60,
+    "description": "Connection to a high-risk destination port (22, 23, 3389, 4444, 5900, 6667)",
+    "check_type": "high_risk_port",
+    "check_config": {}
+  },
+  {
+    "name": "outbound_smtp",
+    "layer": "A",
+    "boost": 30,
+    "mitre": "T1048",
+    "confidence": 0.70,
+    "description": "Internal host sending outbound traffic on port 25 to an external IP",
+    "check_type": "custom_handler",
+    "check_config": { "handler": "check_outbound_smtp" }
+  },
+  {
+    "name": "denied_medium_port_offhours",
+    "layer": "A",
+    "boost": 20,
+    "mitre": "T1046",
+    "confidence": 0.55,
+    "description": "Denied connection to a medium-risk port during off-hours",
+    "check_type": "custom_handler",
+    "check_config": { "handler": "check_denied_medium_port_offhours" }
+  },
+  {
+    "name": "auth_failure",
+    "layer": "A",
+    "boost": 20,
+    "mitre": "T1110",
+    "confidence": 0.55,
+    "description": "Authentication failure on an authentication, application, or web_server module",
+    "check_type": "custom_handler",
+    "check_config": { "handler": "check_auth_failure" }
+  },
+  {
+    "name": "account_lockout",
+    "layer": "A",
+    "boost": 35,
+    "mitre": "T1110",
+    "confidence": 0.85,
+    "description": "Account lockout event — direct signal of brute force activity",
+    "check_type": "custom_handler",
+    "check_config": { "handler": "check_account_lockout" }
+  },
+  {
+    "name": "auth_failure_offhours",
+    "layer": "A",
+    "boost": 15,
+    "mitre": "T1110",
+    "confidence": 0.60,
+    "description": "Authentication failure occurring during off-hours",
+    "check_type": "custom_handler",
+    "check_config": { "handler": "check_auth_failure_offhours" }
+  },
+  {
+    "name": "high_log_severity",
+    "layer": "A",
+    "boost": 15,
+    "mitre": "T1499",
+    "confidence": 0.45,
+    "description": "Event severity field is ERROR or CRITICAL (>= 6)",
+    "check_type": "field_gte",
+    "check_config": { "field": "event.severity", "value": 6 }
+  },
+  {
+    "name": "firewall_allow_high_risk",
+    "layer": "A",
+    "boost": 35,
+    "mitre": "T1571",
+    "confidence": 0.75,
+    "description": "Firewall allowed traffic to an external high-risk port",
+    "check_type": "custom_handler",
+    "check_config": { "handler": "check_firewall_allow_high_risk" }
+  },
+  {
+    "name": "cloud_offhours_external",
+    "layer": "A",
+    "boost": 25,
+    "mitre": "T1078",
+    "confidence": 0.65,
+    "description": "Cloud action during off-hours from an external (non-RFC1918) IP",
+    "check_type": "custom_handler",
+    "check_config": { "handler": "check_cloud_offhours_external" }
+  },
+  {
+    "name": "db_external_access",
+    "layer": "A",
+    "boost": 30,
+    "mitre": "T1190",
+    "confidence": 0.75,
+    "description": "Database module event sourced from an external IP",
+    "check_type": "custom_handler",
+    "check_config": { "handler": "check_db_external_access" }
+  },
+  {
+    "name": "sensitive_endpoint",
+    "layer": "A",
+    "boost": 20,
+    "mitre": "T1190",
+    "confidence": 0.60,
+    "description": "Access to a sensitive HTTP endpoint (/admin, /.env, /api/internal etc.)",
+    "check_type": "custom_handler",
+    "check_config": { "handler": "check_sensitive_endpoint" }
+  },
+  {
+    "name": "workstation_to_phi_db",
+    "layer": "A",
+    "boost": 45,
+    "mitre": "T1021",
+    "confidence": 0.90,
+    "description": "Workstation (10.10.x.x) connecting directly to PHI database port, bypassing PAM",
+    "check_type": "custom_handler",
+    "check_config": { "handler": "check_workstation_to_phi_db" }
+  },
+  {
+    "name": "vendor_direct_phi",
+    "layer": "A",
+    "boost": 45,
+    "mitre": "T1078",
+    "confidence": 0.90,
+    "description": "External or vendor IP connecting directly to PHI database without PAM session",
+    "check_type": "custom_handler",
+    "check_config": { "handler": "check_vendor_direct_phi" }
+  },
+  {
+    "name": "bec_phishing",
+    "layer": "A",
+    "boost": 50,
+    "mitre": "T1566",
+    "confidence": 0.90,
+    "description": "Business Email Compromise — lookalike domain targeting executive accounts",
+    "check_type": "custom_handler",
+    "check_config": { "handler": "check_bec_phishing" }
+  },
+  {
+    "name": "hsm_wrong_actor",
+    "layer": "A",
+    "boost": 55,
+    "mitre": "T1552",
+    "confidence": 0.95,
+    "description": "HSM operation performed by an actor other than the approved service account",
+    "check_type": "custom_handler",
+    "check_config": { "handler": "check_hsm_wrong_actor" }
+  },
+  {
+    "name": "audit_integrity",
+    "layer": "A",
+    "boost": 50,
+    "mitre": "T1562",
+    "confidence": 0.92,
+    "description": "Delete or write operation on immutable audit repository or Splunk indexer",
+    "check_type": "custom_handler",
+    "check_config": { "handler": "check_audit_integrity" }
+  },
+  {
+    "name": "c2_dns_beacon",
+    "layer": "A",
+    "boost": 55,
+    "mitre": "T1071.004",
+    "confidence": 0.90,
+    "description": "C2 DNS beaconing pattern — queries to suspicious TLD at regular intervals",
+    "check_type": "custom_handler",
+    "check_config": { "handler": "check_c2_dns_beacon" }
+  },
+  {
+    "name": "impossible_travel",
+    "layer": "A",
+    "boost": 55,
+    "mitre": "T1078",
+    "confidence": 0.93,
+    "description": "Same account authenticated from two geographically impossible locations in short time",
+    "check_type": "any_of",
+    "check_config": {
+      "message_markers": ["IMPOSSIBLE_TRAVEL"],
+      "label_equals": [{ "field": "labels.anomaly_type", "value": "IMPOSSIBLE_TRAVEL" }]
+    }
+  },
+  {
+    "name": "credential_stuffing",
+    "layer": "A",
+    "boost": 45,
+    "mitre": "T1110.004",
+    "confidence": 0.88,
+    "description": "Credential stuffing — high API call count with many unique users on auth endpoints",
+    "check_type": "custom_handler",
+    "check_config": { "handler": "check_credential_stuffing" }
+  },
+  {
+    "name": "bulk_phi_query",
+    "layer": "A",
+    "boost": 40,
+    "mitre": "T1213",
+    "confidence": 0.85,
+    "description": "Bulk SELECT on PHI tables returning more than the row count threshold",
+    "check_type": "custom_handler",
+    "check_config": { "handler": "check_bulk_phi_query" }
+  },
+  {
+    "name": "pam_outside_window",
+    "layer": "A",
+    "boost": 40,
+    "mitre": "T1078",
+    "confidence": 0.85,
+    "description": "PAM privileged account checkout outside the approved time window",
+    "check_type": "any_of",
+    "check_config": {
+      "message_markers": ["OUTSIDE_APPROVED_WINDOW"],
+      "label_equals": [{ "field": "labels.outside_window", "value": true }]
+    }
+  },
+  {
+    "name": "privilege_escalation",
+    "layer": "A",
+    "boost": 45,
+    "mitre": "T1078.003",
+    "confidence": 0.90,
+    "description": "Unauthorised privilege escalation — user added to privileged group by unknown actor",
+    "check_type": "custom_handler",
+    "check_config": { "handler": "check_privilege_escalation" }
+  },
+  {
+    "name": "mass_smb_enum",
+    "layer": "A",
+    "boost": 40,
+    "mitre": "T1135",
+    "confidence": 0.85,
+    "description": "Mass SMB share enumeration — ransomware staging or lateral movement signal",
+    "check_type": "custom_handler",
+    "check_config": { "handler": "check_mass_smb_enum" }
+  },
+  {
+    "name": "bulk_s3_phi_access",
+    "layer": "A",
+    "boost": 45,
+    "mitre": "T1530",
+    "confidence": 0.90,
+    "description": "Bulk access to S3 PHI bucket — data staging or exfiltration signal",
+    "check_type": "custom_handler",
+    "check_config": { "handler": "check_bulk_s3_phi_access" }
+  },
+  {
+    "name": "sql_injection",
+    "layer": "B",
+    "boost": 45,
+    "mitre": "T1190",
+    "confidence": 0.85,
+    "description": "SQL injection pattern detected in message field",
+    "check_type": "pattern_file",
+    "check_config": { "pattern_file": "sqli_patterns.txt" }
+  },
+  {
+    "name": "xss_pattern",
+    "layer": "B",
+    "boost": 40,
+    "mitre": "T1059",
+    "confidence": 0.80,
+    "description": "Cross-site scripting pattern detected in message field",
+    "check_type": "pattern_file",
+    "check_config": { "pattern_file": "xss_patterns.txt" }
+  },
+  {
+    "name": "shell_injection",
+    "layer": "B",
+    "boost": 45,
+    "mitre": "T1059",
+    "confidence": 0.85,
+    "description": "Shell injection pattern detected in message field",
+    "check_type": "pattern_file",
+    "check_config": { "pattern_file": "shell_patterns.txt" }
+  },
+  {
+    "name": "ransomware_pattern",
+    "layer": "B",
+    "boost": 50,
+    "mitre": "T1486",
+    "confidence": 0.90,
+    "description": "Ransomware file extension or behaviour pattern detected in message field",
+    "check_type": "pattern_file",
+    "check_config": { "pattern_file": "ransomware_patterns.txt" }
+  },
+  {
+    "name": "jndi_injection",
+    "layer": "B",
+    "boost": 50,
+    "mitre": "T1190",
+    "confidence": 0.95,
+    "description": "JNDI injection (Log4Shell) pattern detected in message field",
+    "check_type": "pattern_file",
+    "check_config": { "pattern_file": "jndi_patterns.txt" }
+  },
+  {
+    "name": "sensitive_file_access",
+    "layer": "B",
+    "boost": 30,
+    "mitre": "T1083",
+    "confidence": 0.70,
+    "description": "Sensitive file path detected in message field",
+    "check_type": "string_file",
+    "check_config": { "string_file": "sensitive_files.txt" }
+  },
+  {
+    "name": "scanner_agent",
+    "layer": "B",
+    "boost": 25,
+    "mitre": "T1595",
+    "confidence": 0.80,
+    "description": "Known vulnerability scanner user-agent detected in message field",
+    "check_type": "string_file",
+    "check_config": { "string_file": "scanner_agents.txt" }
+  },
+  {
+    "name": "base64_payload",
+    "layer": "B",
+    "boost": 20,
+    "mitre": "T1027",
+    "confidence": 0.65,
+    "description": "Long base64-encoded payload detected in message field — possible obfuscation",
+    "check_type": "regex",
+    "check_config": { "pattern": "[A-Za-z0-9+/]{40,}={0,2}" }
+  }
+]

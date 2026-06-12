@@ -1,0 +1,17 @@
+# XSS patterns
+<script[\s>]
+</script>
+javascript\s*:
+onerror\s*=
+onload\s*=
+onclick\s*=
+onmouseover\s*=
+alert\s*\(
+document\.cookie
+document\.write\s*\(
+eval\s*\(
+<iframe
+<img[^>]+src\s*=\s*["\']?\s*javascript
+svg.*onload
+vbscript\s*:
+expression\s*\(

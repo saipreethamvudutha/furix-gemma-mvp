@@ -1,0 +1,16 @@
+# ── Furix SIEM subsystem (furix_mvp/siem/) — extra runtime deps ───────────────
+# The ported campaign-correlation anomaly engine. Heavier than furix's light core
+# (it pulls the scikit-learn / pyod / scipy ML stack), so it is kept OUT of the
+# core requirements.txt and installed only when running the SIEM pipeline:
+#   pip install -r requirements-siem.txt
+#
+# NOTE: the ML and UEBA detector lanes additionally require trained model
+# artifacts under furix_mvp/siem/models/ (produced by the offline training step);
+# the signature-rule + correlation path runs without them.
+scikit-learn>=1.3.0       # StandardScaler, IsolationForest (layer3 ML lane)
+pyod>=1.1.0               # ECOD + IsolationForest ensemble (layer3 detector)
+scipy>=1.11.0             # gaussian_kde (UEBA scorer)
+numpy>=1.24.0             # feature vectors
+pandas>=2.0.0             # baseline stats / feature frames
+python-dateutil>=2.8.2    # robust timestamp parsing (risk accumulator, ingestion)
+rich>=13.0.0              # optional pretty CLI output (severity engine; degrades if absent)
