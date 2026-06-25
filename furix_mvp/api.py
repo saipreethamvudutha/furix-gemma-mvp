@@ -48,6 +48,13 @@ def index() -> str:
     return (_STATIC / "index.html").read_text(encoding="utf-8")
 
 
+@app.get("/demo", response_class=HTMLResponse)
+def demo() -> str:
+    """Client-facing pipeline demo: shows each container/step lighting up live
+    as one log flows C2→C6→DAL→RAG→C14/C7→C8, then the final verdict."""
+    return (_STATIC / "demo.html").read_text(encoding="utf-8")
+
+
 # ── Analysis ──────────────────────────────────────────────────────────────────
 @app.post("/api/analyze")
 def analyze(req: AnalyzeRequest) -> dict:

@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Furix · Pipeline Demo</title>
+<style>
+  :root{--bg:#0b0f17;--panel:#121826;--panel2:#0f1521;--line:#1f2937;--txt:#e5e9f0;--mut:#8b97ab;--acc:#4f8cff;--ok:#34d399;--warn:#fbbf24;--crit:#f87171;--info:#60a5fa}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 ui-sans-serif,system-ui,sans-serif;min-height:100vh}
+  header{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--panel2);position:sticky;top:0;z-index:10}
+  header h1{font-size:16px;margin:0;font-weight:650}
+  header h1 span{color:var(--acc)}
+  .live{font-size:11px;margin-left:8px;padding:2px 9px;border-radius:999px;border:1px solid var(--line)}
+  .live.ok{color:var(--ok);border-color:#14532d}
+  .live.bad{color:var(--crit);border-color:#7f1d1d}
+  .nav-link{margin-left:auto;font-size:12px;color:var(--mut);text-decoration:none;padding:4px 10px;border:1px solid var(--line);border-radius:6px}
+  .nav-link:hover{color:var(--txt)}
+  .main{display:grid;grid-template-columns:330px 1fr;gap:16px;padding:16px 20px;max-width:1440px;margin:0 auto}
+  @media(max-width:800px){.main{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:0}
+  .card h2{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--mut);margin:0 0 10px}
+  label{font-size:12px;color:var(--mut);display:block;margin-bottom:4px}
+  select,textarea{font:inherit;color:var(--txt);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%}
+  textarea{min-height:155px;resize:vertical;font:12px ui-monospace,monospace}
+  button{font:inherit;cursor:pointer;background:var(--acc);border:none;border-radius:8px;padding:10px;width:100%;color:#fff;font-weight:600;margin-top:10px;font-size:14px;transition:opacity .2s}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .err{color:var(--crit);font-size:12px;margin-top:6px}
+
+  /* ── Pipeline ── */
+  .pipeline{display:flex;flex-direction:column}
+  .stage{position:relative;padding-left:44px;margin-bottom:10px}
+  .stage::before{content:"";position:absolute;left:19px;top:38px;bottom:-10px;width:2px;background:var(--line)}
+  .stage:last-child::before{display:none}
+  .s-icon{position:absolute;left:0;top:8px;width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;border:2px solid var(--line);background:var(--bg);z-index:1;transition:all .4s;color:var(--mut);text-align:center;line-height:1.2}
+  .s-icon.active{border-color:var(--warn);color:var(--warn);animation:pulse 1s ease-in-out infinite}
+  .s-icon.done{border-color:var(--ok);color:var(--ok)}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(251,191,36,.4)}50%{box-shadow:0 0 0 8px rgba(251,191,36,0)}}
+  .s-hdr{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:10px 10px 0 0;background:var(--panel);border:1px solid var(--line);cursor:pointer;transition:all .3s;user-select:none}
+  .s-hdr:only-child,.s-hdr:not(:has(+.s-detail.show)){border-radius:10px}
+  .s-hdr.active{border-color:var(--warn);background:#191300}
+  .s-hdr.done{border-color:#14532d;background:#071510}
+  .c-badge{font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;background:var(--panel2);border:1px solid var(--line);color:var(--mut);font-family:ui-monospace,monospace;white-space:nowrap}
+  .s-hdr.active .c-badge{background:#2a1900;border-color:#78350f;color:var(--warn)}
+  .s-hdr.done .c-badge{background:#071510;border-color:#166534;color:var(--ok)}
+  .s-name{font-weight:600;font-size:13px;flex:1}
+  .s-ms{font-size:11px;color:var(--mut);margin-left:auto;font-family:ui-monospace,monospace}
+  .s-ms.done{color:var(--ok)}
+  .s-detail{background:var(--panel2);border:1px solid var(--line);border-top:none;border-radius:0 0 10px 10px;padding:10px 12px;font-size:12px;display:none}
+  .s-detail.show{display:block}
+  .dr{display:flex;gap:8px;align-items:flex-start;margin-bottom:6px;line-height:1.4}
+  .dk{color:var(--mut);min-width:96px;flex-shrink:0;font-size:11px;padding-top:1px}
+  .dv{color:var(--txt);font-family:ui-monospace,monospace;font-size:11.5px;word-break:break-word;flex:1}
+  .chip{display:inline-block;padding:1px 7px;border-radius:4px;font-size:11px;background:#0d1320;border:1px solid var(--line);color:#bcd0f0;margin:1px}
+  .sev{padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;text-transform:uppercase;display:inline-block}
+  .sev-critical{background:#3b0d0d;color:var(--crit)}
+  .sev-high{background:#3a1d05;color:#fb923c}
+  .sev-medium{background:#3a3408;color:var(--warn)}
+  .sev-low{background:#0c2a4a;color:var(--info)}
+  .sev-informational{background:#0e2a1f;color:var(--ok)}
+  .ag-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:6px;margin-top:6px}
+  .ag{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+  .ag.done{border-color:#14532d}
+  .ag.skip{opacity:.35}
+  .ag .an{font-size:11px;font-weight:600;color:var(--mut);margin-bottom:3px}
+  .ag.done .an{color:var(--ok)}
+  .ag .at{font-size:10px;color:var(--mut);float:right}
+  .ag .av{font-size:12px;margin-top:2px;line-height:1.4}
+
+  /* ── Verdict card ── */
+  #v-card{display:none;margin-top:14px}
+  .v-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px}
+  @media(max-width:600px){.v-grid{grid-template-columns:repeat(2,1fr)}}
+  .vs{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px;text-align:center}
+  .vs .k{font-size:10px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px}
+  .vs .v{font-size:20px;font-weight:700;margin-top:4px}
+  .vs .v.g{color:var(--ok)}.vs .v.w{color:var(--warn)}.vs .v.r{color:var(--crit)}
+  .controls-section{margin-top:10px;font-size:12px}
+  .controls-label{font-size:10px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+  .wall{text-align:right;font-size:11px;color:var(--mut);margin-top:10px;font-family:ui-monospace,monospace}
+</style>
+</head>
+<body>
+<header>
+  <h1>Furix <span>· AI Brain</span> — Pipeline Demo</h1>
+  <span class="live bad" id="live-badge">Gemma ○ checking…</span>
+  <a class="nav-link" href="/">← Main Dashboard</a>
+</header>
+
+<div class="main">
+  <!-- LEFT: Input + verdict -->
+  <div>
+    <div class="card">
+      <h2>Security Log Input</h2>
+      <label>Sample log</label>
+      <select id="sample-sel"></select>
+      <label style="margin-top:10px">Raw log</label>
+      <textarea id="log-input" placeholder="Paste a raw security log / event…"></textarea>
+      <button id="run-btn" onclick="runDemo()">▶ Run Pipeline Demo</button>
+      <div class="err" id="err-msg"></div>
+    </div>
+
+    <div class="card" id="v-card">
+      <h2>Final Verdict</h2>
+      <div class="v-grid" id="v-grid"></div>
+      <div class="controls-section" id="v-controls"></div>
+      <div class="wall" id="v-wall"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Pipeline -->
+  <div>
+    <div class="card">
+      <h2>Processing Pipeline — 15-Container Furix Appliance (Lite Mode)</h2>
+      <div class="pipeline" id="pipeline-wrap"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const STAGES = [
+  {id:'s1',icon:'C2',container:'C2 · Vector',name:'Log Ingest',desc:'Raw log received, source classified, routed to bus'},
+  {id:'s2',icon:'C6',container:'C6 · Normaliser',name:'Parse & Enrich',desc:'Entities extracted, threats triaged, candidate controls mapped'},
+  {id:'s3',icon:'DAL\nC13',container:'DAL + C13 · Cache',name:'Privacy Strip & Cache Check',desc:'PII scrubbed before model, verdict cache consulted'},
+  {id:'s4',icon:'C9',container:'C9 · RAG',name:'Grounding',desc:'Compliance controls & snippets retrieved from knowledge graph'},
+  {id:'s5',icon:'C14\nC7',container:'C14 AI Brain → C7 Gemma',name:'5 AI Agents',desc:'Risk · Compliance · Anomaly · Remediation · Report'},
+  {id:'s6',icon:'C8',container:'C8 · Storage + Detection',name:'Verdict Persist & Alert',desc:'Verdict stored, detection rules evaluated, alerts raised'},
+];
+
+const AGENT_NAMES = {
+  risk_scorer:'Risk Scorer',
+  compliance_mapper:'Compliance',
+  anomaly_detector:'Anomaly',
+  remediation_generator:'Remediation',
+  report_generator:'Report',
+};
+
+function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function chips(arr){return(arr||[]).map(x=>`<span class="chip">${esc(x)}</span>`).join('')||'<span style="color:var(--mut)">—</span>'}
+function row(k,v){return`<div class="dr"><span class="dk">${k}</span><span class="dv">${v}</span></div>`}
+function delay(ms){return new Promise(r=>setTimeout(r,ms))}
+
+function buildPipeline(){
+  document.getElementById('pipeline-wrap').innerHTML=STAGES.map(s=>`
+    <div class="stage" id="${s.id}">
+      <div class="s-icon idle" id="${s.id}-icon">${esc(s.icon)}</div>
+      <div class="s-hdr idle" id="${s.id}-hdr" onclick="toggleDetail('${s.id}')">
+        <span class="c-badge">${esc(s.container)}</span>
+        <span class="s-name">${esc(s.name)}</span>
+        <span class="s-ms" id="${s.id}-ms">—</span>
+      </div>
+      <div class="s-detail" id="${s.id}-detail">
+        <span style="color:var(--mut)">${esc(s.desc)}</span>
+      </div>
+    </div>`).join('')
+}
+
+function toggleDetail(id){document.getElementById(id+'-detail').classList.toggle('show')}
+
+function setState(id,state,ms){
+  const icon=document.getElementById(id+'-icon');
+  const hdr=document.getElementById(id+'-hdr');
+  const msEl=document.getElementById(id+'-ms');
+  icon.className='s-icon '+state;
+  hdr.className='s-hdr '+state;
+  if(ms!=null){msEl.textContent=ms+'ms';msEl.className='s-ms '+(state==='done'?'done':'')}
+  if(state!=='idle')document.getElementById(id+'-detail').classList.add('show');
+}
+
+function fill(id,html){
+  const d=document.getElementById(id+'-detail');
+  d.innerHTML=html;
+  d.classList.add('show');
+}
+
+async function loadSamples(){
+  try{
+    const {samples}=await(await fetch('/api/samples')).json();
+    const sel=document.getElementById('sample-sel');
+    sel.innerHTML='';
+    Object.keys(samples).forEach(k=>{const o=document.createElement('option');o.value=k;o.textContent=k;sel.appendChild(o)});
+    sel.onchange=()=>document.getElementById('log-input').value=samples[sel.value];
+    if(sel.options[0])document.getElementById('log-input').value=samples[sel.options[0].value];
+  }catch(e){console.warn('samples',e)}
+}
+
+async function loadHealth(){
+  try{
+    const h=await(await fetch('/api/health')).json();
+    const b=document.getElementById('live-badge');
+    const ok=h.llm.reachable;
+    b.textContent=`Gemma ${ok?'●':'○'} ${h.llm.mode} · ${h.llm.model}`;
+    b.className='live '+(ok?'ok':'bad');
+  }catch(e){}
+}
+
+async function runDemo(){
+  const raw=document.getElementById('log-input').value.trim();
+  if(!raw)return;
+  const btn=document.getElementById('run-btn');
+  const errEl=document.getElementById('err-msg');
+  btn.disabled=true;btn.textContent='⏳ Analyzing…';errEl.textContent='';
+
+  // Reset
+  STAGES.forEach(s=>{setState(s.id,'idle');fill(s.id,`<span style="color:var(--mut)">${esc(s.desc)}</span>`)});
+  document.getElementById('v-card').style.display='none';
+
+  // Stage 1 — immediate
+  setState('s1','active');
+  fill('s1',row('source','api / dashboard')+row('raw log',`<span style="font-size:11px">${esc(raw.slice(0,140))}${raw.length>140?'…':''}</span>`));
+
+  const t0=performance.now();
+  let result;
+  try{
+    const resp=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({raw_log:raw})});
+    if(!resp.ok)throw new Error('HTTP '+resp.status+': '+await resp.text());
+    result=await resp.json();
+  }catch(e){
+    errEl.textContent='Analysis failed: '+e.message;
+    setState('s1','idle');
+    btn.disabled=false;btn.textContent='▶ Run Pipeline Demo';
+    return;
+  }
+  const wall=Math.round(performance.now()-t0);
+
+  const f=result.finding||{};
+  const v=result.verdict||{};
+  const ents=f.entities||{};
+  const dal=result.dal||{};
+  const rag=result.rag||{};
+  const agArr=result.agents||[];
+  const agMap={};agArr.forEach(a=>{agMap[a.agent]=a});
+  const agTotal=agArr.reduce((s,a)=>s+(a.latency_ms||0),0);
+  const overhead=Math.max(50,result.total_latency_ms-agTotal);
+
+  await delay(150);
+  setState('s1','done',30);
+
+  // Stage 2
+  await delay(250);
+  setState('s2','active');
+  fill('s2',
+    row('log type',`<strong>${esc(f.log_type)}</strong>`)+
+    row('summary',esc((f.summary||'—').slice(0,130)))+
+    row('severity signal',`<span class="sev sev-${esc(f.severity||'medium')}">${esc(f.severity||'medium')}</span>`)+
+    row('IPs',chips(ents.ips))+
+    row('users',chips(ents.usernames))+
+    row('hostnames',chips(ents.hostnames))+
+    row('CVEs',chips(ents.cve_ids))
+  );
+  await delay(350);
+  setState('s2','done',Math.round(overhead*.25));
+
+  // Stage 3
+  await delay(250);
+  setState('s3','active');
+  const tokenSample=Object.values(dal.token_map||{}).slice(0,6);
+  fill('s3',
+    row('cache hit',result.cache_hit?'<span style="color:var(--ok)">YES — skipped all 5 Gemma calls</span>':'<span style="color:var(--mut)">miss — proceeding to agents</span>')+
+    row('PII redacted',`<strong>${dal.stripped||0}</strong> token(s) scrubbed before model sees log`)+
+    (tokenSample.length?row('DAL tokens',chips(tokenSample)):'')
+  );
+  await delay(350);
+  setState('s3','done',Math.round(overhead*.1));
+
+  // Stage 4
+  await delay(250);
+  setState('s4','active');
+  fill('s4',
+    row('mode',rag.available?'<span style="color:var(--ok)">vector + graph (RAG live)</span>':'<span style="color:var(--mut)">static map (RAG off)</span>')+
+    row('controls',chips(rag.controls?.length?rag.controls:v.control_ids))+
+    row('snippets',`${(rag.snippets||[]).length} grounding snippet(s)`)+
+    row('reason',esc(rag.reason||'static-map'))
+  );
+  await delay(400);
+  setState('s4','done',Math.round(overhead*.1));
+
+  // Stage 5
+  await delay(250);
+  setState('s5','active');
+  const skipped=result.narrative?.skipped||[];
+  let agHTML='<div class="ag-grid">';
+  const ORDER=['risk_scorer','compliance_mapper','anomaly_detector','remediation_generator','report_generator'];
+  for(const name of ORDER){
+    const a=agMap[name];
+    const isSkip=!a&&skipped.includes(name);
+    const cls=a?'done':isSkip?'skip':'';
+    let av='<span style="color:var(--mut);font-size:10px">—</span>';
+    if(a&&a.output){
+      if(name==='risk_scorer')av=`risk <strong>${a.output.risk_score??'?'}</strong> · <span class="sev sev-${esc(a.output.severity)}">${esc(a.output.severity)}</span>`;
+      else if(name==='anomaly_detector')av=a.output.is_anomaly?'<span style="color:var(--warn)">⚠ anomaly</span>':'<span style="color:var(--ok)">clean</span>';
+      else if(name==='compliance_mapper')av=chips((a.output.control_ids||[]).slice(0,4));
+      else if(name==='remediation_generator')av=esc((a.output.executive_summary||a.output.summary||'').slice(0,70));
+      else if(name==='report_generator')av=esc((a.output.executive_summary||'').slice(0,70));
+    }
+    if(isSkip)av='<span style="color:var(--mut);font-size:10px">deferred (severity gate)</span>';
+    agHTML+=`<div class="ag ${cls}">
+      <span class="an">${AGENT_NAMES[name]}</span>
+      <span class="at">${a?(a.latency_ms||0)+'ms':'—'}</span>
+      <div class="av">${av}</div>
+    </div>`;
+  }
+  agHTML+='</div>';
+  fill('s5',agHTML);
+  await delay(Math.min(Math.max(agTotal,800),4000));
+  setState('s5','done',agTotal);
+
+  // Stage 6
+  await delay(250);
+  setState('s6','active');
+  const alerted=v.severity==='critical'||v.severity==='high';
+  fill('s6',
+    row('finding ID',esc(result.finding_id))+
+    row('persisted','<span style="color:var(--ok)">yes → in-memory store</span>')+
+    row('cache warmed','next identical event will skip all 5 Gemma calls')+
+    row('alert raised',alerted?`<span style="color:${v.severity==='critical'?'var(--crit)':'#fb923c'}">YES — ${esc(v.severity)} severity event</span>`:'<span style="color:var(--mut)">no</span>')
+  );
+  await delay(300);
+  setState('s6','done',Math.round(overhead*.05));
+
+  // Verdict
+  const sc=v.severity;
+  const col=sc==='critical'?'r':sc==='high'||sc==='medium'?'w':'g';
+  document.getElementById('v-grid').innerHTML=`
+    <div class="vs"><div class="k">Severity</div><div class="v"><span class="sev sev-${esc(sc)}">${esc(sc)}</span></div></div>
+    <div class="vs"><div class="k">Risk Score</div><div class="v ${col}">${v.risk_score??0}<span style="font-size:12px;color:var(--mut)">/10</span></div></div>
+    <div class="vs"><div class="k">Confidence</div><div class="v">${Math.round((v.confidence||0)*100)}<span style="font-size:12px;color:var(--mut)">%</span></div></div>
+    <div class="vs"><div class="k">Anomaly</div><div class="v ${v.is_anomaly?'w':'g'}">${v.is_anomaly?'YES':'No'}</div></div>`;
+  let cv='';
+  if(v.control_ids?.length)cv+=`<div class="controls-label">CIS Controls</div>${chips(v.control_ids)}`;
+  if(v.nist_subcategories?.length)cv+=`<div class="controls-label" style="margin-top:8px">NIST Subcategories</div>${chips(v.nist_subcategories)}`;
+  if(v.hipaa_sections?.length)cv+=`<div class="controls-label" style="margin-top:8px">HIPAA</div>${chips(v.hipaa_sections)}`;
+  document.getElementById('v-controls').innerHTML=cv;
+  document.getElementById('v-wall').textContent=`Gemma total: ${result.total_latency_ms}ms · wall-clock: ${wall}ms · cache: ${result.cache_hit?'HIT':'miss'}`;
+  document.getElementById('v-card').style.display='block';
+
+  btn.disabled=false;btn.textContent='▶ Run Again';
+}
+
+buildPipeline();
+loadSamples();
+loadHealth();
+</script>
+</body>
+</html>
