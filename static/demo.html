@@ -139,6 +139,16 @@ function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt
 function chips(arr){return(arr||[]).map(x=>`<span class="chip">${esc(x)}</span>`).join('')||'<span style="color:var(--mut)">—</span>'}
 function row(k,v){return`<div class="dr"><span class="dk">${k}</span><span class="dv">${v}</span></div>`}
 function delay(ms){return new Promise(r=>setTimeout(r,ms))}
+// Per-agent timing label that tells the cost story: deterministic rules are
+// instant + free; only the agents that truly need reasoning call Gemma.
+function agMeta(a){
+  const src=a.source;
+  if(src==='deterministic')return'<span style="color:var(--info)">instant · rules</span>';
+  if(src==='llm')return(a.latency_ms||0)+'ms · <span style="color:var(--ok)">Gemma</span>';
+  if(src==='mock')return(a.latency_ms||0)+'ms · mock';
+  if(src==='fallback')return'<span style="color:var(--crit)">fallback</span>';
+  return(a.latency_ms||0)+'ms';
+}
 
 function buildPipeline(){
   document.getElementById('pipeline-wrap').innerHTML=STAGES.map(s=>`
@@ -279,24 +289,34 @@ async function runDemo(){
   await delay(250);
   setState('s5','active');
   const skipped=result.narrative?.skipped||[];
+  const detMapped=v.control_ids||[];   // controls resolved deterministically (no LLM)
   let agHTML='<div class="ag-grid">';
   const ORDER=['risk_scorer','compliance_mapper','anomaly_detector','remediation_generator','report_generator'];
   for(const name of ORDER){
     const a=agMap[name];
     const isSkip=!a&&skipped.includes(name);
-    const cls=a?'done':isSkip?'skip':'';
+    // compliance_mapper is normally handled by the deterministic mapping tier
+    // (no Gemma call) — show that explicitly rather than as a blank "—".
+    const isDetCompliance=name==='compliance_mapper'&&!a&&!isSkip;
+    const ran=a||isDetCompliance;
+    const cls=ran?'done':isSkip?'skip':'';
     let av='<span style="color:var(--mut);font-size:10px">—</span>';
+    let meta='—';
     if(a&&a.output){
+      meta=agMeta(a);
       if(name==='risk_scorer')av=`risk <strong>${a.output.risk_score??'?'}</strong> · <span class="sev sev-${esc(a.output.severity)}">${esc(a.output.severity)}</span>`;
       else if(name==='anomaly_detector')av=a.output.is_anomaly?'<span style="color:var(--warn)">⚠ anomaly</span>':'<span style="color:var(--ok)">clean</span>';
       else if(name==='compliance_mapper')av=chips((a.output.control_ids||[]).slice(0,4));
       else if(name==='remediation_generator')av=esc((a.output.executive_summary||a.output.summary||'').slice(0,70));
       else if(name==='report_generator')av=esc((a.output.executive_summary||'').slice(0,70));
+    }else if(isDetCompliance){
+      meta='<span style="color:var(--info)">instant · rules</span>';
+      av=chips(detMapped.slice(0,4));
     }
-    if(isSkip)av='<span style="color:var(--mut);font-size:10px">deferred (severity gate)</span>';
+    if(isSkip){av='<span style="color:var(--mut);font-size:10px">deferred (severity gate)</span>';meta='—';}
     agHTML+=`<div class="ag ${cls}">
       <span class="an">${AGENT_NAMES[name]}</span>
-      <span class="at">${a?(a.latency_ms||0)+'ms':'—'}</span>
+      <span class="at">${meta}</span>
       <div class="av">${av}</div>
     </div>`;
   }
@@ -323,7 +343,7 @@ async function runDemo(){
   const col=sc==='critical'?'r':sc==='high'||sc==='medium'?'w':'g';
   document.getElementById('v-grid').innerHTML=`
     <div class="vs"><div class="k">Severity</div><div class="v"><span class="sev sev-${esc(sc)}">${esc(sc)}</span></div></div>
-    <div class="vs"><div class="k">Risk Score</div><div class="v ${col}">${v.risk_score??0}<span style="font-size:12px;color:var(--mut)">/10</span></div></div>
+    <div class="vs"><div class="k">Risk Score</div><div class="v ${col}">${v.risk_score??0}<span style="font-size:12px;color:var(--mut)">/100</span></div></div>
     <div class="vs"><div class="k">Confidence</div><div class="v">${Math.round((v.confidence||0)*100)}<span style="font-size:12px;color:var(--mut)">%</span></div></div>
     <div class="vs"><div class="k">Anomaly</div><div class="v ${v.is_anomaly?'w':'g'}">${v.is_anomaly?'YES':'No'}</div></div>`;
   let cv='';
@@ -331,7 +351,9 @@ async function runDemo(){
   if(v.nist_subcategories?.length)cv+=`<div class="controls-label" style="margin-top:8px">NIST Subcategories</div>${chips(v.nist_subcategories)}`;
   if(v.hipaa_sections?.length)cv+=`<div class="controls-label" style="margin-top:8px">HIPAA</div>${chips(v.hipaa_sections)}`;
   document.getElementById('v-controls').innerHTML=cv;
-  document.getElementById('v-wall').textContent=`Gemma total: ${result.total_latency_ms}ms · wall-clock: ${wall}ms · cache: ${result.cache_hit?'HIT':'miss'}`;
+  const gemmaAgents=agArr.filter(a=>a.source==='llm');
+  const gemmaMs=gemmaAgents.reduce((s,a)=>s+(a.latency_ms||0),0);
+  document.getElementById('v-wall').textContent=`Pipeline total: ${result.total_latency_ms}ms · Gemma: ${gemmaMs}ms across ${gemmaAgents.length} call(s) · deterministic tiers: instant · cache: ${result.cache_hit?'HIT':'miss'}`;
   document.getElementById('v-card').style.display='block';
 
   btn.disabled=false;btn.textContent='▶ Run Again';
