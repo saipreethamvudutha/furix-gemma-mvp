@@ -43,23 +43,31 @@ def _startup() -> None:
 
 
 # ── UI ────────────────────────────────────────────────────────────────────────
+def _console() -> str:
+    return (_STATIC / "console.html").read_text(encoding="utf-8")
+
+
+# The unified console (Pipeline · Routing & Cost · Gemma Capacity tabs) is the
+# one page clients use. /demo and /stress are kept as aliases so old links work.
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
-    return (_STATIC / "index.html").read_text(encoding="utf-8")
+    return _console()
 
 
 @app.get("/demo", response_class=HTMLResponse)
 def demo() -> str:
-    """Client-facing pipeline demo: shows each container/step lighting up live
-    as one log flows C2→C6→DAL→RAG→C14/C7→C8, then the final verdict."""
-    return (_STATIC / "demo.html").read_text(encoding="utf-8")
+    return _console()
 
 
 @app.get("/stress", response_class=HTMLResponse)
 def stress_page() -> str:
-    """Client-facing stress/benchmark page: routing (deterministic vs Gemma per
-    log) + Gemma capacity ramp (p50/p95/p99, throughput, saturation)."""
-    return (_STATIC / "stress.html").read_text(encoding="utf-8")
+    return _console()
+
+
+@app.get("/classic", response_class=HTMLResponse)
+def classic() -> str:
+    """The original single-page analyze UI, kept for reference."""
+    return (_STATIC / "index.html").read_text(encoding="utf-8")
 
 
 class StressRequest(BaseModel):

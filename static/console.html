@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Furix · Security AI Console</title>
+<style>
+  :root{--bg:#0b0f17;--panel:#121826;--panel2:#0f1521;--line:#1f2937;--txt:#e5e9f0;--mut:#8b97ab;--acc:#4f8cff;--ok:#34d399;--warn:#fbbf24;--crit:#f87171;--info:#60a5fa;--purple:#a78bfa}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 ui-sans-serif,system-ui,sans-serif;min-height:100vh}
+  header{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--panel2);position:sticky;top:0;z-index:10}
+  header h1{font-size:16px;margin:0;font-weight:650}
+  header h1 span{color:var(--acc)}
+  .live{font-size:11px;margin-left:auto;padding:3px 10px;border-radius:999px;border:1px solid var(--line)}
+  .live.ok{color:var(--ok);border-color:#14532d}
+  .live.bad{color:var(--crit);border-color:#7f1d1d}
+  .wrap{max-width:1320px;margin:0 auto;padding:16px 20px}
+
+  /* tabs */
+  .tabs{display:flex;gap:8px;margin-bottom:16px}
+  .tab{flex:1;cursor:pointer;text-align:center;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);font-weight:600;font-size:13px;transition:all .2s;user-select:none}
+  .tab .sub{display:block;font-size:11px;color:var(--mut);font-weight:400;margin-top:3px}
+  .tab.on{border-color:var(--acc);background:#0d1830}
+  .tab.on .sub{color:#9db8e8}
+  .hide{display:none}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+  .card h2{font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--mut);margin:0 0 8px}
+  .lead{color:var(--mut);font-size:12.5px;margin:0 0 12px;max-width:820px}
+  label{font-size:12px;color:var(--mut);display:block;margin-bottom:4px}
+  select,textarea,input{font:inherit;color:var(--txt);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+  select,textarea{width:100%}
+  textarea{min-height:150px;resize:vertical;font:12px ui-monospace,monospace}
+  input[type=number]{width:90px}
+  .err{color:var(--crit);font-size:12.5px;margin-top:8px}
+
+  /* pipeline view */
+  .pipe-layout{display:grid;grid-template-columns:340px 1fr;gap:16px}
+  @media(max-width:860px){.pipe-layout{grid-template-columns:1fr}}
+  #view-pipeline button.primary{font:inherit;cursor:pointer;background:var(--acc);border:none;border-radius:8px;padding:10px;width:100%;color:#fff;font-weight:600;margin-top:10px;font-size:14px}
+  #view-pipeline button.primary:disabled{opacity:.4;cursor:not-allowed}
+  .pipeline{display:flex;flex-direction:column}
+  .stage{position:relative;padding-left:44px;margin-bottom:10px}
+  .stage::before{content:"";position:absolute;left:19px;top:38px;bottom:-10px;width:2px;background:var(--line)}
+  .stage:last-child::before{display:none}
+  .s-icon{position:absolute;left:0;top:8px;width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;border:2px solid var(--line);background:var(--bg);z-index:1;transition:all .4s;color:var(--mut);text-align:center;line-height:1.2}
+  .s-icon.active{border-color:var(--warn);color:var(--warn);animation:pulse 1s ease-in-out infinite}
+  .s-icon.done{border-color:var(--ok);color:var(--ok)}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(251,191,36,.4)}50%{box-shadow:0 0 0 8px rgba(251,191,36,0)}}
+  .s-hdr{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:10px 10px 0 0;background:var(--panel);border:1px solid var(--line);cursor:pointer;transition:all .3s;user-select:none}
+  .s-hdr.active{border-color:var(--warn);background:#191300}
+  .s-hdr.done{border-color:#14532d;background:#071510}
+  .c-badge{font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;background:var(--panel2);border:1px solid var(--line);color:var(--mut);font-family:ui-monospace,monospace;white-space:nowrap}
+  .s-hdr.active .c-badge{background:#2a1900;border-color:#78350f;color:var(--warn)}
+  .s-hdr.done .c-badge{background:#071510;border-color:#166534;color:var(--ok)}
+  .s-name{font-weight:600;font-size:13px;flex:1}
+  .s-ms{font-size:11px;color:var(--mut);margin-left:auto;font-family:ui-monospace,monospace}
+  .s-ms.done{color:var(--ok)}
+  .s-detail{background:var(--panel2);border:1px solid var(--line);border-top:none;border-radius:0 0 10px 10px;padding:10px 12px;font-size:12px;display:none}
+  .s-detail.show{display:block}
+  .dr{display:flex;gap:8px;align-items:flex-start;margin-bottom:6px;line-height:1.4}
+  .dk{color:var(--mut);min-width:96px;flex-shrink:0;font-size:11px;padding-top:1px}
+  .dv{color:var(--txt);font-family:ui-monospace,monospace;font-size:11.5px;word-break:break-word;flex:1}
+  .chip{display:inline-block;padding:1px 7px;border-radius:4px;font-size:11px;background:#0d1320;border:1px solid var(--line);color:#bcd0f0;margin:1px}
+  .sev{padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;text-transform:uppercase;display:inline-block}
+  .sev-critical{background:#3b0d0d;color:var(--crit)}.sev-high{background:#3a1d05;color:#fb923c}
+  .sev-medium{background:#3a3408;color:var(--warn)}.sev-low{background:#0c2a4a;color:var(--info)}
+  .sev-informational{background:#0e2a1f;color:var(--ok)}
+  .ag-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:6px;margin-top:6px}
+  .ag{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+  .ag.done{border-color:#14532d}.ag.skip{opacity:.35}
+  .ag .an{font-size:11px;font-weight:600;color:var(--mut);margin-bottom:3px}
+  .ag.done .an{color:var(--ok)}
+  .ag .at{font-size:10px;color:var(--mut);float:right}
+  .ag .av{font-size:12px;margin-top:2px;line-height:1.4}
+  #v-card{display:none;margin-top:14px}
+  .v-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px}
+  @media(max-width:600px){.v-grid{grid-template-columns:repeat(2,1fr)}}
+  .vs{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px;text-align:center}
+  .vs .k{font-size:10px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px}
+  .vs .v{font-size:20px;font-weight:700;margin-top:4px}
+  .vs .v.g{color:var(--ok)}.vs .v.w{color:var(--warn)}.vs .v.r{color:var(--crit)}
+  .controls-section{margin-top:10px;font-size:12px}
+  .controls-label{font-size:10px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+  .wall{text-align:right;font-size:11px;color:var(--mut);margin-top:10px;font-family:ui-monospace,monospace}
+
+  /* stress views */
+  .controls-row{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;margin-bottom:6px}
+  .ctl label{display:block;font-size:11px;color:var(--mut);margin-bottom:4px}
+  .chipset{display:flex;gap:6px}
+  .cchip{cursor:pointer;padding:6px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);font-size:13px;color:var(--mut);user-select:none}
+  .cchip.on{border-color:var(--acc);color:var(--txt);background:#0d1830}
+  button.run{cursor:pointer;background:var(--acc);border:none;border-radius:8px;padding:10px 18px;color:#fff;font-weight:600;font-size:14px}
+  button.run:disabled{opacity:.4;cursor:not-allowed}
+  .note{font-size:11.5px;color:var(--mut);margin-top:10px}
+  .progress{margin-top:14px;display:none}
+  .progress.show{display:block}
+  .bar{height:10px;background:var(--panel2);border:1px solid var(--line);border-radius:999px;overflow:hidden}
+  .bar > i{display:block;height:100%;background:var(--acc);width:0;transition:width .4s}
+  .pmeta{display:flex;justify-content:space-between;font-size:11.5px;color:var(--mut);margin-top:6px}
+  table{width:100%;border-collapse:collapse;margin-top:12px;font-size:12.5px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+  th{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.4px;font-weight:600}
+  td.num,th.num{text-align:right;font-family:ui-monospace,monospace}
+  tr:hover td{background:var(--panel2)}
+  .pill{padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;display:inline-block;white-space:nowrap}
+  .route-det{background:#0e2a1f;color:var(--ok)}
+  .route-llm{background:#241a3a;color:var(--purple)}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:12px}
+  .kpi{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px;text-align:center}
+  .kpi .k{font-size:10.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.4px}
+  .kpi .v{font-size:22px;font-weight:700;margin-top:4px}
+  .kpi .v.g{color:var(--ok)}.kpi .v.p{color:var(--purple)}.kpi .v.w{color:var(--warn)}.kpi .v.a{color:var(--acc)}
+  .callout{margin-top:14px;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);font-size:13px}
+  .callout b{color:var(--txt)}
+  .chart{margin-top:14px}
+  .crow{display:flex;align-items:center;gap:10px;margin-bottom:7px;font-size:12px}
+  .crow .lbl{width:90px;color:var(--mut);font-family:ui-monospace,monospace}
+  .crow .track{flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:6px;height:20px;overflow:hidden}
+  .crow .track > i{display:block;height:100%}
+  .crow .val{width:120px;text-align:right;font-family:ui-monospace,monospace;color:var(--txt)}
+  .legend{font-size:11.5px;color:var(--mut);margin-top:8px}
+  .legend .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin:0 4px 0 12px;vertical-align:middle}
+</style>
+</head>
+<body>
+<header>
+  <h1>Furix <span>· Security AI Console</span> — Gemma MVP</h1>
+  <span class="live bad" id="live-badge">Gemma ○ checking…</span>
+</header>
+
+<div class="wrap">
+  <div class="tabs">
+    <div class="tab on" id="tab-pipeline" onclick="switchTab('pipeline')">
+      Pipeline<span class="sub">one log → 15 containers → verdict</span>
+    </div>
+    <div class="tab" id="tab-routing" onclick="switchTab('routing')">
+      Routing &amp; Cost<span class="sub">why some logs are instant &amp; others hit Gemma</span>
+    </div>
+    <div class="tab" id="tab-gemma" onclick="switchTab('gemma')">
+      Gemma Capacity<span class="sub">latency p50/p95/p99 · throughput · saturation</span>
+    </div>
+  </div>
+
+  <!-- ════ PIPELINE ════ -->
+  <div id="view-pipeline">
+    <div class="pipe-layout">
+      <div>
+        <div class="card">
+          <h2>Security Log Input</h2>
+          <label>Sample log</label>
+          <select id="sample-sel"></select>
+          <label style="margin-top:10px">Raw log</label>
+          <textarea id="log-input" placeholder="Paste a raw security log / event…"></textarea>
+          <button class="primary" id="run-btn" onclick="runDemo()">▶ Run Pipeline Demo</button>
+          <div class="err" id="err-msg"></div>
+        </div>
+        <div class="card" id="v-card">
+          <h2>Final Verdict</h2>
+          <div class="v-grid" id="v-grid"></div>
+          <div class="controls-section" id="v-controls"></div>
+          <div class="wall" id="v-wall"></div>
+        </div>
+      </div>
+      <div>
+        <div class="card">
+          <h2>Processing Pipeline — 15-Container Furix Appliance (Lite Mode)</h2>
+          <div class="pipeline" id="pipeline-wrap"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════ ROUTING ════ -->
+  <div id="view-routing" class="hide">
+    <div class="card">
+      <h2>Routing &amp; Cost — deterministic rules vs Gemma, per log</h2>
+      <p class="lead">Runs every sample log through the full appliance and shows, for each one,
+        <b>which tier decided it</b>. Most events are resolved by instant deterministic rules
+        (regex + crosswalk + embeddings) — <b>0&nbsp;ms, no model</b>. Only events that genuinely need
+        reasoning (or that no rule can map) fall through to a <b>Gemma LLM call</b>, with its real
+        response time shown. The cost story: the model is the rare last resort, not the default.</p>
+      <div class="controls-row">
+        <div class="ctl"><label>Concurrency</label><input type="number" id="r-conc" value="3" min="1" max="16"></div>
+        <button class="run" id="r-run" onclick="runRouting()">▶ Run routing benchmark</button>
+      </div>
+      <p class="note">⏱ First Gemma call may be slow (model cold-load). High-severity logs trigger the
+        narrative agents (Remediation/Report) which call Gemma — those rows take longer; low-severity
+        logs stay fully deterministic at ~0&nbsp;ms.</p>
+      <div class="progress" id="r-prog"><div class="bar"><i id="r-bar"></i></div>
+        <div class="pmeta"><span id="r-pmsg">starting…</span><span id="r-pcount"></span></div></div>
+      <div class="err" id="r-err"></div>
+    </div>
+    <div class="card hide" id="r-results">
+      <h2>Result — routing breakdown</h2>
+      <div class="cards" id="r-kpis"></div>
+      <div class="callout" id="r-callout"></div>
+      <table id="r-table"></table>
+    </div>
+  </div>
+
+  <!-- ════ GEMMA CAPACITY ════ -->
+  <div id="view-gemma" class="hide">
+    <div class="card">
+      <h2>Gemma Capacity — how fast &amp; how many at once</h2>
+      <p class="lead">Drives a real Gemma agent at rising concurrency and measures the model's response
+        time (<b>p50/p95/p99</b>), throughput (<b>req/s</b>), tokens/s, and the <b>saturation point</b> —
+        the concurrency past which more load only adds latency, not throughput. Tells you how many
+        concurrent analysts/agents this Gemma deployment can serve.</p>
+      <div class="controls-row">
+        <div class="ctl"><label>Gemma agent (must call the model)</label>
+          <select id="g-agent">
+            <option value="remediation_generator">Remediation Generator (Gemma)</option>
+            <option value="report_generator">Report Generator (Gemma)</option>
+            <option value="compliance_mapper">Compliance Mapper (Gemma)</option>
+          </select></div>
+        <div class="ctl"><label>Concurrency levels</label>
+          <div class="chipset" id="g-levels">
+            <span class="cchip on" data-c="1">1</span><span class="cchip on" data-c="2">2</span>
+            <span class="cchip on" data-c="4">4</span><span class="cchip" data-c="8">8</span>
+          </div></div>
+        <div class="ctl"><label>Requests / level</label><input type="number" id="g-reqs" value="4" min="1" max="40"></div>
+        <button class="run" id="g-run" onclick="runGemma()">▶ Run capacity ramp</button>
+      </div>
+      <p class="note">⏱ Each request is a real Gemma call (~10–25s on CPU). Keep requests low for a live
+        demo: 4 requests × 3 levels ≈ a couple of minutes. The progress bar tracks calls completed.</p>
+      <div class="progress" id="g-prog"><div class="bar"><i id="g-bar"></i></div>
+        <div class="pmeta"><span id="g-pmsg">starting…</span><span id="g-pcount"></span></div></div>
+      <div class="err" id="g-err"></div>
+    </div>
+    <div class="card hide" id="g-results">
+      <h2>Result — capacity ramp</h2>
+      <div class="callout" id="g-callout"></div>
+      <table id="g-table"></table>
+      <div class="chart" id="g-chart"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function chips(arr){return(arr||[]).map(x=>`<span class="chip">${esc(x)}</span>`).join('')||'<span style="color:var(--mut)">—</span>'}
+function row(k,v){return`<div class="dr"><span class="dk">${k}</span><span class="dv">${v}</span></div>`}
+function sev(s){return`<span class="sev sev-${esc(s||'medium')}">${esc(s||'?')}</span>`}
+function delay(ms){return new Promise(r=>setTimeout(r,ms))}
+
+function switchTab(t){
+  ['pipeline','routing','gemma'].forEach(x=>{
+    document.getElementById('tab-'+x).classList.toggle('on',x===t);
+    document.getElementById('view-'+x).classList.toggle('hide',x!==t);
+  });
+}
+
+async function loadHealth(){
+  try{
+    const h=await(await fetch('/api/health')).json();
+    const b=$('#live-badge');const ok=h.llm.reachable;
+    b.textContent=`Gemma ${ok?'●':'○'} ${h.llm.mode} · ${h.llm.model}`;
+    b.className='live '+(ok?'ok':'bad');
+  }catch(e){}
+}
+
+/* ════════════ PIPELINE ════════════ */
+const STAGES=[
+  {id:'s1',icon:'C2',container:'C2 · Vector',name:'Log Ingest',desc:'Raw log received, source classified, routed to bus'},
+  {id:'s2',icon:'C6',container:'C6 · Normaliser',name:'Parse & Enrich',desc:'Entities extracted, threats triaged, candidate controls mapped'},
+  {id:'s3',icon:'DAL\nC13',container:'DAL + C13 · Cache',name:'Privacy Strip & Cache Check',desc:'PII scrubbed before model, verdict cache consulted'},
+  {id:'s4',icon:'C9',container:'C9 · RAG',name:'Grounding',desc:'Compliance controls & snippets retrieved from knowledge graph'},
+  {id:'s5',icon:'C14\nC7',container:'C14 AI Brain → C7 Gemma',name:'5 AI Agents',desc:'Risk · Compliance · Anomaly · Remediation · Report'},
+  {id:'s6',icon:'C8',container:'C8 · Storage + Detection',name:'Verdict Persist & Alert',desc:'Verdict stored, detection rules evaluated, alerts raised'},
+];
+const AGENT_NAMES={risk_scorer:'Risk Scorer',compliance_mapper:'Compliance',anomaly_detector:'Anomaly',remediation_generator:'Remediation',report_generator:'Report'};
+function agMeta(a){
+  const src=a.source;
+  if(src==='deterministic')return'<span style="color:var(--info)">instant · rules</span>';
+  if(src==='llm')return(a.latency_ms||0)+'ms · <span style="color:var(--ok)">Gemma</span>';
+  if(src==='mock')return(a.latency_ms||0)+'ms · mock';
+  if(src==='fallback')return'<span style="color:var(--crit)">fallback</span>';
+  return(a.latency_ms||0)+'ms';
+}
+function buildPipeline(){
+  document.getElementById('pipeline-wrap').innerHTML=STAGES.map(s=>`
+    <div class="stage" id="${s.id}">
+      <div class="s-icon idle" id="${s.id}-icon">${esc(s.icon)}</div>
+      <div class="s-hdr idle" id="${s.id}-hdr" onclick="toggleDetail('${s.id}')">
+        <span class="c-badge">${esc(s.container)}</span>
+        <span class="s-name">${esc(s.name)}</span>
+        <span class="s-ms" id="${s.id}-ms">—</span>
+      </div>
+      <div class="s-detail" id="${s.id}-detail"><span style="color:var(--mut)">${esc(s.desc)}</span></div>
+    </div>`).join('')
+}
+function toggleDetail(id){document.getElementById(id+'-detail').classList.toggle('show')}
+function setState(id,state,ms){
+  document.getElementById(id+'-icon').className='s-icon '+state;
+  document.getElementById(id+'-hdr').className='s-hdr '+state;
+  const msEl=document.getElementById(id+'-ms');
+  if(ms!=null){msEl.textContent=ms+'ms';msEl.className='s-ms '+(state==='done'?'done':'')}
+  if(state!=='idle')document.getElementById(id+'-detail').classList.add('show');
+}
+function fill(id,html){const d=document.getElementById(id+'-detail');d.innerHTML=html;d.classList.add('show')}
+async function loadSamples(){
+  try{
+    const {samples}=await(await fetch('/api/samples')).json();
+    const sel=$('#sample-sel');sel.innerHTML='';
+    Object.keys(samples).forEach(k=>{const o=document.createElement('option');o.value=k;o.textContent=k;sel.appendChild(o)});
+    sel.onchange=()=>$('#log-input').value=samples[sel.value];
+    if(sel.options[0])$('#log-input').value=samples[sel.options[0].value];
+  }catch(e){}
+}
+async function runDemo(){
+  const raw=$('#log-input').value.trim();if(!raw)return;
+  const btn=$('#run-btn'),errEl=$('#err-msg');
+  btn.disabled=true;btn.textContent='⏳ Analyzing…';errEl.textContent='';
+  STAGES.forEach(s=>{setState(s.id,'idle');fill(s.id,`<span style="color:var(--mut)">${esc(s.desc)}</span>`)});
+  $('#v-card').style.display='none';
+  setState('s1','active');
+  fill('s1',row('source','api / dashboard')+row('raw log',`<span style="font-size:11px">${esc(raw.slice(0,140))}${raw.length>140?'…':''}</span>`));
+  const t0=performance.now();let result;
+  try{
+    const resp=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({raw_log:raw})});
+    if(!resp.ok)throw new Error('HTTP '+resp.status+': '+await resp.text());
+    result=await resp.json();
+  }catch(e){errEl.textContent='Analysis failed: '+e.message;setState('s1','idle');btn.disabled=false;btn.textContent='▶ Run Pipeline Demo';return}
+  const wall=Math.round(performance.now()-t0);
+  const f=result.finding||{},v=result.verdict||{},ents=f.entities||{},dal=result.dal||{},rag=result.rag||{};
+  const agArr=result.agents||[];const agMap={};agArr.forEach(a=>{agMap[a.agent]=a});
+  const agTotal=agArr.reduce((s,a)=>s+(a.latency_ms||0),0);
+  const overhead=Math.max(50,result.total_latency_ms-agTotal);
+  await delay(150);setState('s1','done',30);
+  await delay(250);setState('s2','active');
+  fill('s2',row('log type',`<strong>${esc(f.log_type)}</strong>`)+row('summary',esc((f.summary||'—').slice(0,130)))+
+    row('severity signal',sev(f.severity))+row('IPs',chips(ents.ips))+row('users',chips(ents.usernames))+
+    row('hostnames',chips(ents.hostnames))+row('CVEs',chips(ents.cve_ids)));
+  await delay(350);setState('s2','done',Math.round(overhead*.25));
+  await delay(250);setState('s3','active');
+  const tokenSample=Object.values(dal.token_map||{}).slice(0,6);
+  fill('s3',row('cache hit',result.cache_hit?'<span style="color:var(--ok)">YES — skipped all 5 Gemma calls</span>':'<span style="color:var(--mut)">miss — proceeding to agents</span>')+
+    row('PII redacted',`<strong>${dal.stripped||0}</strong> token(s) scrubbed before model sees log`)+
+    (tokenSample.length?row('DAL tokens',chips(tokenSample)):''));
+  await delay(350);setState('s3','done',Math.round(overhead*.1));
+  await delay(250);setState('s4','active');
+  fill('s4',row('mode',rag.available?'<span style="color:var(--ok)">vector + graph (RAG live)</span>':'<span style="color:var(--mut)">static map (RAG off)</span>')+
+    row('controls',chips(rag.controls?.length?rag.controls:v.control_ids))+
+    row('snippets',`${(rag.snippets||[]).length} grounding snippet(s)`)+row('reason',esc(rag.reason||'static-map')));
+  await delay(400);setState('s4','done',Math.round(overhead*.1));
+  await delay(250);setState('s5','active');
+  const skipped=result.narrative?.skipped||[];const detMapped=v.control_ids||[];
+  let agHTML='<div class="ag-grid">';
+  const ORDER=['risk_scorer','compliance_mapper','anomaly_detector','remediation_generator','report_generator'];
+  for(const name of ORDER){
+    const a=agMap[name];const isSkip=!a&&skipped.includes(name);
+    const isDetCompliance=name==='compliance_mapper'&&!a&&!isSkip;
+    const ran=a||isDetCompliance;const cls=ran?'done':isSkip?'skip':'';
+    let av='<span style="color:var(--mut);font-size:10px">—</span>',meta='—';
+    if(a&&a.output){
+      meta=agMeta(a);
+      if(name==='risk_scorer')av=`risk <strong>${a.output.risk_score??'?'}</strong> · ${sev(a.output.severity)}`;
+      else if(name==='anomaly_detector')av=a.output.is_anomaly?'<span style="color:var(--warn)">⚠ anomaly</span>':'<span style="color:var(--ok)">clean</span>';
+      else if(name==='compliance_mapper')av=chips((a.output.control_ids||[]).slice(0,4));
+      else if(name==='remediation_generator')av=esc((a.output.executive_summary||a.output.summary||'').slice(0,70));
+      else if(name==='report_generator')av=esc((a.output.executive_summary||'').slice(0,70));
+    }else if(isDetCompliance){meta='<span style="color:var(--info)">instant · rules</span>';av=chips(detMapped.slice(0,4))}
+    if(isSkip){av='<span style="color:var(--mut);font-size:10px">deferred (severity gate)</span>';meta='—'}
+    agHTML+=`<div class="ag ${cls}"><span class="an">${AGENT_NAMES[name]}</span><span class="at">${meta}</span><div class="av">${av}</div></div>`;
+  }
+  agHTML+='</div>';fill('s5',agHTML);
+  await delay(Math.min(Math.max(agTotal,800),4000));setState('s5','done',agTotal);
+  await delay(250);setState('s6','active');
+  const alerted=v.severity==='critical'||v.severity==='high';
+  fill('s6',row('finding ID',esc(result.finding_id))+row('persisted','<span style="color:var(--ok)">yes → in-memory store</span>')+
+    row('cache warmed','next identical event will skip all 5 Gemma calls')+
+    row('alert raised',alerted?`<span style="color:${v.severity==='critical'?'var(--crit)':'#fb923c'}">YES — ${esc(v.severity)} severity event</span>`:'<span style="color:var(--mut)">no</span>'));
+  await delay(300);setState('s6','done',Math.round(overhead*.05));
+  const sc=v.severity;const col=sc==='critical'?'r':sc==='high'||sc==='medium'?'w':'g';
+  $('#v-grid').innerHTML=`
+    <div class="vs"><div class="k">Severity</div><div class="v">${sev(sc)}</div></div>
+    <div class="vs"><div class="k">Risk Score</div><div class="v ${col}">${v.risk_score??0}<span style="font-size:12px;color:var(--mut)">/100</span></div></div>
+    <div class="vs"><div class="k">Confidence</div><div class="v">${Math.round((v.confidence||0)*100)}<span style="font-size:12px;color:var(--mut)">%</span></div></div>
+    <div class="vs"><div class="k">Anomaly</div><div class="v ${v.is_anomaly?'w':'g'}">${v.is_anomaly?'YES':'No'}</div></div>`;
+  let cv='';
+  if(v.control_ids?.length)cv+=`<div class="controls-label">CIS Controls</div>${chips(v.control_ids)}`;
+  if(v.nist_subcategories?.length)cv+=`<div class="controls-label" style="margin-top:8px">NIST Subcategories</div>${chips(v.nist_subcategories)}`;
+  if(v.hipaa_sections?.length)cv+=`<div class="controls-label" style="margin-top:8px">HIPAA</div>${chips(v.hipaa_sections)}`;
+  $('#v-controls').innerHTML=cv;
+  const gemmaAgents=agArr.filter(a=>a.source==='llm');
+  const gemmaMs=gemmaAgents.reduce((s,a)=>s+(a.latency_ms||0),0);
+  $('#v-wall').textContent=`Pipeline total: ${result.total_latency_ms}ms · Gemma: ${gemmaMs}ms across ${gemmaAgents.length} call(s) · deterministic tiers: instant · cache: ${result.cache_hit?'HIT':'miss'}`;
+  $('#v-card').style.display='block';
+  btn.disabled=false;btn.textContent='▶ Run Again';
+}
+
+/* ════════════ STRESS (shared poll) ════════════ */
+async function startJob(scenario,params,onTick){
+  const r=await fetch('/api/stress/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scenario,params})});
+  if(!r.ok)throw new Error('HTTP '+r.status+': '+await r.text());
+  const {job_id}=await r.json();
+  return new Promise((resolve,reject)=>{
+    const iv=setInterval(async()=>{
+      try{
+        const j=await(await fetch('/api/stress/status?id='+job_id)).json();
+        onTick(j);
+        if(j.state==='done'){clearInterval(iv);resolve(j)}
+        else if(j.state==='error'){clearInterval(iv);reject(new Error(j.error||'job failed'))}
+      }catch(e){clearInterval(iv);reject(e)}
+    },1000);
+  });
+}
+
+/* ════ ROUTING ════ */
+async function runRouting(){
+  const btn=$('#r-run');btn.disabled=true;btn.textContent='⏳ Running…';
+  $('#r-err').textContent='';$('#r-results').classList.add('hide');
+  $('#r-prog').classList.add('show');$('#r-bar').style.width='0%';
+  const conc=Math.max(1,Math.min(16,parseInt($('#r-conc').value)||3));
+  try{const j=await startJob('routing',{concurrency:conc},tickRouting);renderRouting(j)}
+  catch(e){$('#r-err').textContent='Failed: '+e.message}
+  finally{btn.disabled=false;btn.textContent='▶ Run routing benchmark';$('#r-prog').classList.remove('show')}
+}
+function tickRouting(j){
+  const pct=j.total?Math.round(100*j.progress/j.total):0;
+  $('#r-bar').style.width=pct+'%';
+  $('#r-pmsg').textContent=j.state==='running'?'analyzing logs through the full pipeline…':j.state;
+  $('#r-pcount').textContent=`${j.progress}/${j.total} logs`;
+  if((j.rows||[]).length)renderRouting(j,true);
+}
+function renderRouting(j,partial){
+  const rows=j.rows||[];if(!rows.length)return;
+  $('#r-results').classList.remove('hide');
+  const s=j.summary;
+  if(s){
+    $('#r-kpis').innerHTML=`
+      <div class="kpi"><div class="k">Logs analyzed</div><div class="v a">${s.logs}</div></div>
+      <div class="kpi"><div class="k">Fully deterministic</div><div class="v g">${s.deterministic_only}</div></div>
+      <div class="kpi"><div class="k">Hit Gemma</div><div class="v p">${s.hit_gemma}</div></div>
+      <div class="kpi"><div class="k">% no model</div><div class="v g">${s.deterministic_pct}%</div></div>
+      <div class="kpi"><div class="k">Total Gemma calls</div><div class="v p">${s.total_gemma_calls}</div></div>
+      <div class="kpi"><div class="k">Avg Gemma call</div><div class="v w">${s.avg_gemma_ms}ms</div></div>`;
+    $('#r-callout').innerHTML=`<b>${s.deterministic_pct}%</b> of logs were fully resolved by instant
+      deterministic rules (0&nbsp;ms, no model). Only <b>${s.hit_gemma}</b> needed Gemma, across
+      <b>${s.total_gemma_calls}</b> calls. Compliance mapping reached the LLM only
+      <b>${s.compliance_llm_rate}%</b> of the time — everything else was crosswalk/embeddings.`;
+  }
+  let h=`<tr><th>Sample log</th><th>Type</th><th>Severity</th><th>Route</th>
+    <th class="num">Deterministic</th><th class="num">Gemma calls</th><th class="num">Gemma ms</th><th class="num">Total ms</th></tr>`;
+  for(const r of rows){
+    const det=r.gemma_calls===0;
+    h+=`<tr><td>${esc(r.sample)}</td>
+      <td><span style="font-family:ui-monospace,monospace;font-size:11px">${esc(r.log_type)}</span></td>
+      <td>${sev(r.severity)}</td>
+      <td><span class="pill ${det?'route-det':'route-llm'}">${det?'Deterministic · no model':'Gemma LLM'}</span></td>
+      <td class="num">${r.deterministic_ms}ms</td><td class="num">${r.gemma_calls||'—'}</td>
+      <td class="num">${r.gemma_ms?r.gemma_ms+'ms':'—'}</td><td class="num"><b>${r.total_ms}ms</b></td></tr>`;
+  }
+  $('#r-table').innerHTML=h;
+}
+
+/* ════ GEMMA CAPACITY ════ */
+document.querySelectorAll('#g-levels .cchip').forEach(c=>c.onclick=()=>c.classList.toggle('on'));
+async function runGemma(){
+  const levels=[...document.querySelectorAll('#g-levels .cchip.on')].map(c=>+c.dataset.c).sort((a,b)=>a-b);
+  if(!levels.length){$('#g-err').textContent='Pick at least one concurrency level.';return}
+  const btn=$('#g-run');btn.disabled=true;btn.textContent='⏳ Running…';
+  $('#g-err').textContent='';$('#g-results').classList.add('hide');
+  $('#g-prog').classList.add('show');$('#g-bar').style.width='0%';
+  const params={agent:$('#g-agent').value,concurrency:levels,requests:Math.max(1,Math.min(40,parseInt($('#g-reqs').value)||4))};
+  try{const j=await startJob('gemma_ramp',params,tickGemma);renderGemma(j)}
+  catch(e){$('#g-err').textContent='Failed: '+e.message}
+  finally{btn.disabled=false;btn.textContent='▶ Run capacity ramp';$('#g-prog').classList.remove('show')}
+}
+function tickGemma(j){
+  const pct=j.total?Math.round(100*j.progress/j.total):0;
+  $('#g-bar').style.width=pct+'%';
+  $('#g-pmsg').textContent=j.state==='running'?`driving ${j.agent||'Gemma'} at rising concurrency…`:j.state;
+  $('#g-pcount').textContent=`${j.progress}/${j.total} calls`;
+  if((j.levels||[]).length)renderGemma(j,true);
+}
+function renderGemma(j,partial){
+  const levels=j.levels||[];if(!levels.length)return;
+  $('#g-results').classList.remove('hide');
+  const s=j.summary;
+  if(s&&!partial){
+    const sat=s.saturation?`Saturates at ~<b>${s.saturation}</b> concurrent — past there, more load adds latency, not throughput.`:
+      `No saturation reached up to the top level tested — Gemma still scaled.`;
+    $('#g-callout').innerHTML=`Peak throughput <b>${s.peak_rps} req/s</b> at concurrency
+      <b>${s.peak_concurrency}</b> (p95 ${s.peak_p95_ms}ms), agent <b>${esc(s.agent)}</b>,
+      ${s.requests_per_level} req/level. ${sat}`;
+  }
+  let h=`<tr><th class="num">conc</th><th class="num">done</th><th class="num">err%</th>
+    <th class="num">req/s</th><th class="num">tok/s</th><th class="num">p50</th>
+    <th class="num">p95</th><th class="num">p99</th><th class="num">max</th></tr>`;
+  for(const r of levels){
+    h+=`<tr><td class="num"><b>${r.concurrency}</b></td><td class="num">${r.completed}</td>
+      <td class="num">${Math.round(r.error_rate*100)}%</td><td class="num">${r.throughput_rps}</td>
+      <td class="num">${r.tokens_per_s}</td><td class="num">${r.p50_ms}</td>
+      <td class="num">${r.p95_ms}</td><td class="num">${r.p99_ms}</td><td class="num">${r.max_ms}</td></tr>`;
+  }
+  $('#g-table').innerHTML=h;
+  const maxP95=Math.max(...levels.map(l=>l.p95_ms),1);
+  const maxRps=Math.max(...levels.map(l=>l.throughput_rps),0.01);
+  let c=`<div class="legend"><span class="dot" style="background:var(--warn)"></span>p95 latency (ms)
+    <span class="dot" style="background:var(--ok)"></span>throughput (req/s)</div>`;
+  for(const l of levels){
+    c+=`<div class="crow"><span class="lbl">conc ${l.concurrency}</span>
+      <span class="track"><i style="width:${Math.round(100*l.p95_ms/maxP95)}%;background:var(--warn)"></i></span>
+      <span class="val">${l.p95_ms}ms</span></div>`;
+    c+=`<div class="crow"><span class="lbl"></span>
+      <span class="track"><i style="width:${Math.round(100*l.throughput_rps/maxRps)}%;background:var(--ok)"></i></span>
+      <span class="val">${l.throughput_rps} r/s</span></div>`;
+  }
+  $('#g-chart').innerHTML=c;
+}
+
+buildPipeline();loadSamples();loadHealth();
+</script>
+</body>
+</html>
