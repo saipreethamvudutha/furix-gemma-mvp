@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Furix · Stress & Benchmark</title>
+<style>
+  :root{--bg:#0b0f17;--panel:#121826;--panel2:#0f1521;--line:#1f2937;--txt:#e5e9f0;--mut:#8b97ab;--acc:#4f8cff;--ok:#34d399;--warn:#fbbf24;--crit:#f87171;--info:#60a5fa;--purple:#a78bfa}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 ui-sans-serif,system-ui,sans-serif;min-height:100vh}
+  header{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--panel2);position:sticky;top:0;z-index:10}
+  header h1{font-size:16px;margin:0;font-weight:650}
+  header h1 span{color:var(--acc)}
+  .live{font-size:11px;margin-left:8px;padding:2px 9px;border-radius:999px;border:1px solid var(--line)}
+  .live.ok{color:var(--ok);border-color:#14532d}
+  .live.bad{color:var(--crit);border-color:#7f1d1d}
+  .nav{margin-left:auto;display:flex;gap:8px}
+  .nav a{font-size:12px;color:var(--mut);text-decoration:none;padding:4px 10px;border:1px solid var(--line);border-radius:6px}
+  .nav a:hover,.nav a.on{color:var(--txt);border-color:var(--acc)}
+  .wrap{max-width:1200px;margin:0 auto;padding:16px 20px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+  .card h2{font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--mut);margin:0 0 6px}
+  .lead{color:var(--mut);font-size:12.5px;margin:0 0 12px;max-width:760px}
+  .tabs{display:flex;gap:8px;margin-bottom:16px}
+  .tab{flex:1;cursor:pointer;text-align:center;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);font-weight:600;font-size:13px;transition:all .2s}
+  .tab .sub{display:block;font-size:11px;color:var(--mut);font-weight:400;margin-top:3px}
+  .tab.on{border-color:var(--acc);background:#0d1830}
+  .tab.on .sub{color:#9db8e8}
+  .controls{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;margin-bottom:6px}
+  .ctl label{display:block;font-size:11px;color:var(--mut);margin-bottom:4px}
+  select,input{font:inherit;color:var(--txt);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+  input[type=number]{width:90px}
+  .chipset{display:flex;gap:6px}
+  .cchip{cursor:pointer;padding:6px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);font-size:13px;color:var(--mut);user-select:none}
+  .cchip.on{border-color:var(--acc);color:var(--txt);background:#0d1830}
+  button.run{cursor:pointer;background:var(--acc);border:none;border-radius:8px;padding:10px 18px;color:#fff;font-weight:600;font-size:14px}
+  button.run:disabled{opacity:.4;cursor:not-allowed}
+  .note{font-size:11.5px;color:var(--mut);margin-top:10px}
+  .progress{margin-top:14px;display:none}
+  .progress.show{display:block}
+  .bar{height:10px;background:var(--panel2);border:1px solid var(--line);border-radius:999px;overflow:hidden}
+  .bar > i{display:block;height:100%;background:var(--acc);width:0;transition:width .4s}
+  .pmeta{display:flex;justify-content:space-between;font-size:11.5px;color:var(--mut);margin-top:6px}
+  .err{color:var(--crit);font-size:12.5px;margin-top:10px}
+
+  table{width:100%;border-collapse:collapse;margin-top:12px;font-size:12.5px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+  th{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.4px;font-weight:600}
+  td.num,th.num{text-align:right;font-family:ui-monospace,monospace}
+  tr:hover td{background:var(--panel2)}
+  .pill{padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;display:inline-block;white-space:nowrap}
+  .route-det{background:#0e2a1f;color:var(--ok)}
+  .route-llm{background:#241a3a;color:var(--purple)}
+  .sev{padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:700;text-transform:uppercase}
+  .sev-critical{background:#3b0d0d;color:var(--crit)}.sev-high{background:#3a1d05;color:#fb923c}
+  .sev-medium{background:#3a3408;color:var(--warn)}.sev-low{background:#0c2a4a;color:var(--info)}
+  .sev-informational{background:#0e2a1f;color:var(--ok)}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:12px}
+  .kpi{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px;text-align:center}
+  .kpi .k{font-size:10.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.4px}
+  .kpi .v{font-size:22px;font-weight:700;margin-top:4px}
+  .kpi .v.g{color:var(--ok)}.kpi .v.p{color:var(--purple)}.kpi .v.w{color:var(--warn)}.kpi .v.a{color:var(--acc)}
+  .callout{margin-top:14px;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);font-size:13px}
+  .callout b{color:var(--txt)}
+  /* mini bar chart */
+  .chart{margin-top:14px}
+  .crow{display:flex;align-items:center;gap:10px;margin-bottom:7px;font-size:12px}
+  .crow .lbl{width:90px;color:var(--mut);font-family:ui-monospace,monospace}
+  .crow .track{flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:6px;height:20px;overflow:hidden}
+  .crow .track > i{display:block;height:100%}
+  .crow .val{width:120px;text-align:right;font-family:ui-monospace,monospace;color:var(--txt)}
+  .legend{font-size:11.5px;color:var(--mut);margin-top:8px}
+  .legend .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin:0 4px 0 12px;vertical-align:middle}
+  .hide{display:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>Furix <span>· Stress &amp; Benchmark</span></h1>
+  <span class="live bad" id="live-badge">Gemma ○ checking…</span>
+  <div class="nav">
+    <a href="/demo">Pipeline Demo</a>
+    <a href="/">Main Dashboard</a>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="tabs">
+    <div class="tab on" id="tab-routing" onclick="switchTab('routing')">
+      Routing &amp; Cost
+      <span class="sub">why some logs are instant &amp; others hit Gemma</span>
+    </div>
+    <div class="tab" id="tab-gemma" onclick="switchTab('gemma')">
+      Gemma Capacity
+      <span class="sub">latency p50/p95/p99 · throughput · saturation</span>
+    </div>
+  </div>
+
+  <!-- ── ROUTING SCENARIO ── -->
+  <div id="panel-routing">
+    <div class="card">
+      <h2>Routing &amp; Cost — deterministic rules vs Gemma, per log</h2>
+      <p class="lead">Runs every sample log through the full appliance and shows, for each one,
+        <b>which tier decided it</b>. Most events are resolved by instant deterministic rules
+        (regex + crosswalk + embeddings) — <b>0&nbsp;ms, no model</b>. Only the events that genuinely
+        need reasoning (or that no rule can map) fall through to a <b>Gemma LLM call</b>, with its real
+        response time shown. This is the cost story: the model is the rare last resort, not the default.</p>
+      <div class="controls">
+        <div class="ctl">
+          <label>Concurrency</label>
+          <input type="number" id="r-conc" value="3" min="1" max="16">
+        </div>
+        <button class="run" id="r-run" onclick="runRouting()">▶ Run routing benchmark</button>
+      </div>
+      <p class="note">⏱ First Gemma call may be slow (model cold-load). High-severity logs trigger the
+        narrative agents (Remediation/Report) which call Gemma — those rows take longer; low-severity
+        logs stay fully deterministic at ~0&nbsp;ms.</p>
+      <div class="progress" id="r-prog">
+        <div class="bar"><i id="r-bar"></i></div>
+        <div class="pmeta"><span id="r-pmsg">starting…</span><span id="r-pcount"></span></div>
+      </div>
+      <div class="err" id="r-err"></div>
+    </div>
+
+    <div class="card hide" id="r-results">
+      <h2>Result — routing breakdown</h2>
+      <div class="cards" id="r-kpis"></div>
+      <div class="callout" id="r-callout"></div>
+      <table id="r-table"></table>
+    </div>
+  </div>
+
+  <!-- ── GEMMA CAPACITY SCENARIO ── -->
+  <div id="panel-gemma" class="hide">
+    <div class="card">
+      <h2>Gemma Capacity — how fast &amp; how many at once</h2>
+      <p class="lead">Drives a real Gemma agent at rising concurrency and measures the model's response
+        time (<b>p50/p95/p99</b>), throughput (<b>req/s</b>), tokens/s, and the <b>saturation point</b> —
+        the concurrency past which adding load only adds latency, not throughput. This tells you how many
+        concurrent analysts/agents this Gemma deployment can serve.</p>
+      <div class="controls">
+        <div class="ctl">
+          <label>Gemma agent (must call the model)</label>
+          <select id="g-agent">
+            <option value="remediation_generator">Remediation Generator (Gemma)</option>
+            <option value="report_generator">Report Generator (Gemma)</option>
+            <option value="compliance_mapper">Compliance Mapper (Gemma)</option>
+          </select>
+        </div>
+        <div class="ctl">
+          <label>Concurrency levels</label>
+          <div class="chipset" id="g-levels">
+            <span class="cchip on" data-c="1">1</span>
+            <span class="cchip on" data-c="2">2</span>
+            <span class="cchip on" data-c="4">4</span>
+            <span class="cchip" data-c="8">8</span>
+          </div>
+        </div>
+        <div class="ctl">
+          <label>Requests / level</label>
+          <input type="number" id="g-reqs" value="4" min="1" max="40">
+        </div>
+        <button class="run" id="g-run" onclick="runGemma()">▶ Run capacity ramp</button>
+      </div>
+      <p class="note">⏱ Each request is a real Gemma call (~10–25s on CPU). Keep requests low for a live
+        demo: 4 requests × 3 levels ≈ a couple of minutes. The progress bar tracks calls completed.</p>
+      <div class="progress" id="g-prog">
+        <div class="bar"><i id="g-bar"></i></div>
+        <div class="pmeta"><span id="g-pmsg">starting…</span><span id="g-pcount"></span></div>
+      </div>
+      <div class="err" id="g-err"></div>
+    </div>
+
+    <div class="card hide" id="g-results">
+      <h2>Result — capacity ramp</h2>
+      <div class="callout" id="g-callout"></div>
+      <table id="g-table"></table>
+      <div class="chart" id="g-chart"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function sev(s){return`<span class="sev sev-${esc(s||'medium')}">${esc(s||'?')}</span>`}
+
+async function loadHealth(){
+  try{
+    const h=await(await fetch('/api/health')).json();
+    const b=$('#live-badge');const ok=h.llm.reachable;
+    b.textContent=`Gemma ${ok?'●':'○'} ${h.llm.mode} · ${h.llm.model}`;
+    b.className='live '+(ok?'ok':'bad');
+  }catch(e){}
+}
+
+function switchTab(t){
+  $('#tab-routing').classList.toggle('on',t==='routing');
+  $('#tab-gemma').classList.toggle('on',t==='gemma');
+  $('#panel-routing').classList.toggle('hide',t!=='routing');
+  $('#panel-gemma').classList.toggle('hide',t!=='gemma');
+}
+
+// concurrency chips for the gemma ramp
+document.querySelectorAll('#g-levels .cchip').forEach(c=>c.onclick=()=>c.classList.toggle('on'));
+
+// ── generic poll loop ──
+async function startJob(scenario,params,onTick){
+  const r=await fetch('/api/stress/start',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({scenario,params})});
+  if(!r.ok)throw new Error('HTTP '+r.status+': '+await r.text());
+  const {job_id}=await r.json();
+  return new Promise((resolve,reject)=>{
+    const iv=setInterval(async()=>{
+      try{
+        const j=await(await fetch('/api/stress/status?id='+job_id)).json();
+        onTick(j);
+        if(j.state==='done'){clearInterval(iv);resolve(j)}
+        else if(j.state==='error'){clearInterval(iv);reject(new Error(j.error||'job failed'))}
+      }catch(e){clearInterval(iv);reject(e)}
+    },1000);
+  });
+}
+
+// ════ ROUTING ════
+async function runRouting(){
+  const btn=$('#r-run');btn.disabled=true;btn.textContent='⏳ Running…';
+  $('#r-err').textContent='';$('#r-results').classList.add('hide');
+  $('#r-prog').classList.add('show');$('#r-bar').style.width='0%';
+  const conc=Math.max(1,Math.min(16,parseInt($('#r-conc').value)||3));
+  try{
+    const j=await startJob('routing',{concurrency:conc},tickRouting);
+    renderRouting(j);
+  }catch(e){$('#r-err').textContent='Failed: '+e.message}
+  finally{btn.disabled=false;btn.textContent='▶ Run routing benchmark';$('#r-prog').classList.remove('show')}
+}
+function tickRouting(j){
+  const pct=j.total?Math.round(100*j.progress/j.total):0;
+  $('#r-bar').style.width=pct+'%';
+  $('#r-pmsg').textContent=j.state==='running'?'analyzing logs through the full pipeline…':j.state;
+  $('#r-pcount').textContent=`${j.progress}/${j.total} logs`;
+  if((j.rows||[]).length)renderRouting(j,true);
+}
+function renderRouting(j,partial){
+  const rows=j.rows||[];if(!rows.length)return;
+  $('#r-results').classList.remove('hide');
+  const s=j.summary;
+  if(s){
+    $('#r-kpis').innerHTML=`
+      <div class="kpi"><div class="k">Logs analyzed</div><div class="v a">${s.logs}</div></div>
+      <div class="kpi"><div class="k">Fully deterministic</div><div class="v g">${s.deterministic_only}</div></div>
+      <div class="kpi"><div class="k">Hit Gemma</div><div class="v p">${s.hit_gemma}</div></div>
+      <div class="kpi"><div class="k">% no model</div><div class="v g">${s.deterministic_pct}%</div></div>
+      <div class="kpi"><div class="k">Total Gemma calls</div><div class="v p">${s.total_gemma_calls}</div></div>
+      <div class="kpi"><div class="k">Avg Gemma call</div><div class="v w">${s.avg_gemma_ms}ms</div></div>`;
+    $('#r-callout').innerHTML=`<b>${s.deterministic_pct}%</b> of logs were fully resolved by instant
+      deterministic rules (0&nbsp;ms, no model). Only <b>${s.hit_gemma}</b> needed Gemma, across
+      <b>${s.total_gemma_calls}</b> calls. Compliance mapping reached the LLM only
+      <b>${s.compliance_llm_rate}%</b> of the time — everything else was crosswalk/embeddings.`;
+  }
+  let h=`<tr><th>Sample log</th><th>Type</th><th>Severity</th><th>Route</th>
+    <th class="num">Deterministic</th><th class="num">Gemma calls</th>
+    <th class="num">Gemma ms</th><th class="num">Total ms</th></tr>`;
+  for(const r of rows){
+    const det=r.gemma_calls===0;
+    h+=`<tr>
+      <td>${esc(r.sample)}</td>
+      <td><span style="font-family:ui-monospace,monospace;font-size:11px">${esc(r.log_type)}</span></td>
+      <td>${sev(r.severity)}</td>
+      <td><span class="pill ${det?'route-det':'route-llm'}">${det?'Deterministic · no model':'Gemma LLM'}</span></td>
+      <td class="num">${r.deterministic_ms}ms</td>
+      <td class="num">${r.gemma_calls||'—'}</td>
+      <td class="num">${r.gemma_ms?r.gemma_ms+'ms':'—'}</td>
+      <td class="num"><b>${r.total_ms}ms</b></td>
+    </tr>`;
+  }
+  $('#r-table').innerHTML=h;
+}
+
+// ════ GEMMA CAPACITY ════
+async function runGemma(){
+  const levels=[...document.querySelectorAll('#g-levels .cchip.on')].map(c=>+c.dataset.c).sort((a,b)=>a-b);
+  if(!levels.length){$('#g-err').textContent='Pick at least one concurrency level.';return}
+  const btn=$('#g-run');btn.disabled=true;btn.textContent='⏳ Running…';
+  $('#g-err').textContent='';$('#g-results').classList.add('hide');
+  $('#g-prog').classList.add('show');$('#g-bar').style.width='0%';
+  const params={agent:$('#g-agent').value,concurrency:levels,requests:Math.max(1,Math.min(40,parseInt($('#g-reqs').value)||4))};
+  try{
+    const j=await startJob('gemma_ramp',params,tickGemma);
+    renderGemma(j);
+  }catch(e){$('#g-err').textContent='Failed: '+e.message}
+  finally{btn.disabled=false;btn.textContent='▶ Run capacity ramp';$('#g-prog').classList.remove('show')}
+}
+function tickGemma(j){
+  const pct=j.total?Math.round(100*j.progress/j.total):0;
+  $('#g-bar').style.width=pct+'%';
+  $('#g-pmsg').textContent=j.state==='running'?`driving ${j.agent||'Gemma'} at rising concurrency…`:j.state;
+  $('#g-pcount').textContent=`${j.progress}/${j.total} calls`;
+  if((j.levels||[]).length)renderGemma(j,true);
+}
+function renderGemma(j,partial){
+  const levels=j.levels||[];if(!levels.length)return;
+  $('#g-results').classList.remove('hide');
+  const s=j.summary;
+  if(s&&!partial){
+    const sat=s.saturation?`Saturates at ~<b>${s.saturation}</b> concurrent — past there, more load adds latency, not throughput.`:
+      `No saturation reached up to the top level tested — Gemma still scaled.`;
+    $('#g-callout').innerHTML=`Peak throughput <b>${s.peak_rps} req/s</b> at concurrency
+      <b>${s.peak_concurrency}</b> (p95 ${s.peak_p95_ms}ms), agent <b>${esc(s.agent)}</b>,
+      ${s.requests_per_level} req/level. ${sat}`;
+  }
+  let h=`<tr><th class="num">conc</th><th class="num">done</th><th class="num">err%</th>
+    <th class="num">req/s</th><th class="num">tok/s</th><th class="num">p50</th>
+    <th class="num">p95</th><th class="num">p99</th><th class="num">max</th></tr>`;
+  for(const r of levels){
+    h+=`<tr><td class="num"><b>${r.concurrency}</b></td><td class="num">${r.completed}</td>
+      <td class="num">${Math.round(r.error_rate*100)}%</td><td class="num">${r.throughput_rps}</td>
+      <td class="num">${r.tokens_per_s}</td><td class="num">${r.p50_ms}</td>
+      <td class="num">${r.p95_ms}</td><td class="num">${r.p99_ms}</td><td class="num">${r.max_ms}</td></tr>`;
+  }
+  $('#g-table').innerHTML=h;
+  // mini bar charts: p95 latency + throughput per concurrency level
+  const maxP95=Math.max(...levels.map(l=>l.p95_ms),1);
+  const maxRps=Math.max(...levels.map(l=>l.throughput_rps),0.01);
+  let c=`<div class="legend"><span class="dot" style="background:var(--warn)"></span>p95 latency (ms)
+    <span class="dot" style="background:var(--ok)"></span>throughput (req/s)</div>`;
+  for(const l of levels){
+    c+=`<div class="crow"><span class="lbl">conc ${l.concurrency}</span>
+      <span class="track"><i style="width:${Math.round(100*l.p95_ms/maxP95)}%;background:var(--warn)"></i></span>
+      <span class="val">${l.p95_ms}ms</span></div>`;
+    c+=`<div class="crow"><span class="lbl"></span>
+      <span class="track"><i style="width:${Math.round(100*l.throughput_rps/maxRps)}%;background:var(--ok)"></i></span>
+      <span class="val">${l.throughput_rps} r/s</span></div>`;
+  }
+  $('#g-chart').innerHTML=c;
+}
+
+loadHealth();
+</script>
+</body>
+</html>

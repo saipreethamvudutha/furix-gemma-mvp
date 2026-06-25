@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import brain, config, db, llm, rag, pipeline, config_checks
+from . import brain, config, db, llm, rag, pipeline, config_checks, stress
 from .schemas import AnalyzeRequest
 from .samples import SAMPLE_LOGS
 from .containers import (c12_operations as ops, c8_storage_detect as c8,
@@ -53,6 +53,34 @@ def demo() -> str:
     """Client-facing pipeline demo: shows each container/step lighting up live
     as one log flows C2→C6→DAL→RAG→C14/C7→C8, then the final verdict."""
     return (_STATIC / "demo.html").read_text(encoding="utf-8")
+
+
+@app.get("/stress", response_class=HTMLResponse)
+def stress_page() -> str:
+    """Client-facing stress/benchmark page: routing (deterministic vs Gemma per
+    log) + Gemma capacity ramp (p50/p95/p99, throughput, saturation)."""
+    return (_STATIC / "stress.html").read_text(encoding="utf-8")
+
+
+class StressRequest(BaseModel):
+    scenario: str                       # "routing" | "gemma_ramp"
+    params: dict = {}
+
+
+@app.post("/api/stress/start")
+def stress_start(req: StressRequest) -> dict:
+    """Kick off a benchmark in the background; returns a job id to poll."""
+    job_id = stress.start(req.scenario, req.params or {})
+    return {"job_id": job_id}
+
+
+@app.get("/api/stress/status")
+def stress_status(id: str) -> dict:
+    """Poll a running/finished benchmark: progress + partial/final results."""
+    job = stress.get_job(id)
+    if not job:
+        return {"error": "unknown job id", "state": "error"}
+    return job
 
 
 # ── Analysis ──────────────────────────────────────────────────────────────────
