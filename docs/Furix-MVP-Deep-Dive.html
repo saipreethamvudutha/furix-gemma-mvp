@@ -1,0 +1,721 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Furix Gemma MVP — Architecture &amp; Concepts Deep Dive</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  *{box-sizing:border-box}
+  body{font:11pt/1.5 "Segoe UI",system-ui,sans-serif;color:#1a2332;margin:0;background:#fff}
+  h1,h2,h3,h4{color:#0f2747;line-height:1.25;margin:0 0 .4em}
+  h1{font-size:26pt}
+  h2{font-size:17pt;border-bottom:2px solid #2563eb;padding-bottom:4px;margin-top:0}
+  h3{font-size:13pt;color:#1d4ed8;margin-top:1.1em}
+  h4{font-size:11.5pt;color:#0f2747;margin-top:.9em}
+  p{margin:.5em 0}
+  code{font-family:"Consolas",ui-monospace,monospace;background:#eef2f7;padding:1px 5px;border-radius:4px;font-size:9.5pt;color:#9333ea}
+  .mut{color:#5b6b82}
+  .lead{font-size:11.5pt;color:#33455e}
+  ul,ol{margin:.4em 0 .6em;padding-left:20px}
+  li{margin:.25em 0}
+  table{width:100%;border-collapse:collapse;margin:.7em 0;font-size:9.7pt}
+  th,td{border:1px solid #d3dbe6;padding:6px 8px;text-align:left;vertical-align:top}
+  th{background:#eef3fb;color:#0f2747;font-weight:600}
+  tr:nth-child(even) td{background:#f8fafc}
+  .section{page-break-before:always;padding-top:6px}
+  .cover{page-break-after:always;height:255mm;display:flex;flex-direction:column;justify-content:center}
+  .cover .tag{color:#2563eb;font-weight:700;letter-spacing:3px;font-size:11pt;text-transform:uppercase}
+  .cover h1{font-size:34pt;margin:.2em 0}
+  .cover .sub{font-size:14pt;color:#33455e;margin-top:.3em}
+  .cover .meta{margin-top:40px;font-size:10pt;color:#5b6b82;border-top:1px solid #d3dbe6;padding-top:14px}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:8.5pt;font-weight:700}
+  .p-real{background:#dcfce7;color:#15803d}.p-mvp{background:#fef9c3;color:#a16207}.p-road{background:#ede9fe;color:#6d28d9}
+  .callout{background:#f0f6ff;border:1px solid #c3d9f5;border-left:4px solid #2563eb;border-radius:6px;padding:10px 14px;margin:.8em 0}
+  .callout.warn{background:#fff7ed;border-color:#fed7aa;border-left-color:#ea580c}
+  .callout.key{background:#f5f3ff;border-color:#ddd6fe;border-left-color:#7c3aed}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .box{border:1px solid #d3dbe6;border-radius:6px;padding:10px 12px;background:#fbfcfe}
+  .box h4{margin-top:0}
+  .toc a{color:#1d4ed8;text-decoration:none}
+  .toc li{margin:.3em 0}
+  .rate{font-size:9pt;color:#5b6b82}
+  .star{color:#f59e0b;letter-spacing:1px}
+  figure{margin:1em 0;text-align:center}
+  figcaption{font-size:9pt;color:#5b6b82;margin-top:5px}
+  .cnum{display:inline-block;min-width:34px;font-weight:700;color:#2563eb}
+  .small{font-size:9.3pt}
+  svg{max-width:100%;height:auto}
+</style>
+</head>
+<body>
+
+<!-- ───────── COVER ───────── -->
+<div class="cover">
+  <div class="tag">Furix · Security AI Platform</div>
+  <h1>Gemma MVP</h1>
+  <div class="sub">Architecture &amp; Concepts — Deep Dive</div>
+  <div class="sub mut" style="font-size:12pt">The single source of truth: every container, every concept, in depth.</div>
+  <div class="meta">
+    <strong>Document purpose:</strong> A complete technical reference for the 15-container Furix appliance MVP —
+    what each container does, the engineering concepts behind it, how the production version differs, and an
+    honest assessment of where the code and concepts stand today.<br><br>
+    <strong>Scope:</strong> Validation MVP — proving the in-house Gemma model (<code>gemma4:e4b</code>) is accurate
+    and fast enough to power Furix's security reasoning.<br>
+    <strong>Audience:</strong> Engineering, client technical stakeholders.<br>
+    <strong>Legend:</strong>
+    <span class="pill p-real">PRODUCTION-GRADE CONCEPT</span>
+    <span class="pill p-mvp">SIMPLIFIED IN MVP</span>
+    <span class="pill p-road">ROADMAP</span>
+  </div>
+</div>
+
+<!-- ───────── TOC ───────── -->
+<div class="section">
+  <h2>Contents</h2>
+  <ol class="toc">
+    <li><a href="#what">1 · What the MVP is (and is not)</a></li>
+    <li><a href="#principles">2 · The five design principles</a></li>
+    <li><a href="#flow">3 · End-to-end data flow</a></li>
+    <li><a href="#latency">4 · Why you still see lag — the latency reality (in depth)</a></li>
+    <li><a href="#containers">5 · The 15 containers — deep dive</a>
+      <ul class="small">
+        <li>C1 nginx · C2 Vector · C3 Scan Engine · C4 Intel Sync · C5 Kafka</li>
+        <li>C6 Normaliser · C7 Gemma · C8 Storage+Detection · C9 Postgres · C10 ClickHouse</li>
+        <li>C11 Dashboard · C12 Operations · C13 Valkey · C14 AI Brain · C15 Backup</li>
+      </ul>
+    </li>
+    <li><a href="#dal">6 · The DAL — privacy by construction</a></li>
+    <li><a href="#agents">7 · The five AI agents</a></li>
+    <li><a href="#cost">8 · The cost model — why the LLM is the last resort</a></li>
+    <li><a href="#measure">9 · How we measure (percentiles &amp; saturation)</a></li>
+    <li><a href="#assessment">10 · Engineering assessment — how good is each container?</a></li>
+    <li><a href="#roadmap">11 · Scope &amp; roadmap to production</a></li>
+    <li><a href="#glossary">12 · Glossary</a></li>
+  </ol>
+</div>
+
+<!-- ───────── 1 WHAT ───────── -->
+<div class="section" id="what">
+  <h2>1 · What the MVP is (and is not)</h2>
+  <p class="lead">The Furix Gemma MVP is a <strong>faithful, lightweight reproduction of the full 15-container Furix
+  security appliance</strong>, built to answer one question with evidence: <em>"Is our in-house Gemma model
+  accurate enough and fast enough to power Furix's security reasoning — before we commit to the full production
+  build?"</em></p>
+
+  <div class="grid2">
+    <div class="box">
+      <h4>✓ What it IS</h4>
+      <ul>
+        <li>All <strong>15 containers</strong> of the real architecture, running as one Python process ("lite mode").</li>
+        <li>All <strong>5 AI agents</strong> calling a real, on-prem Gemma model.</li>
+        <li>The real <strong>privacy layer</strong> (DAL), <strong>cost-routing</strong>, and <strong>compliance grounding</strong>.</li>
+        <li>A <strong>measurement rig</strong>: routing/cost analysis + Gemma capacity benchmarking.</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h4>✗ What it is NOT (yet)</h4>
+      <ul>
+        <li>Not production-scale: single-process, in-memory by default.</li>
+        <li>No GPU-optimised serving (vLLM), no Kafka partitioning, no horizontal workers.</li>
+        <li>No cross-event correlation (each event reasoned independently).</li>
+        <li>No GBDT "instinct" tier (the production middle layer between cache and LLM).</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="callout key"><strong>The one idea to remember:</strong> Every cheap, deterministic step runs first so
+  that the expensive AI model is the <em>last resort</em> — invoked only when an event genuinely needs reasoning.
+  Most of the appliance exists to make the model trustworthy (privacy + grounding + validation) and affordable
+  (cache + deterministic routing).</div>
+
+  <h3>The three-repo ecosystem</h3>
+  <p>The MVP is the <strong>appliance under test</strong>. Two sibling generators produce realistic, labelled test
+  data with known-correct answers, so the appliance's verdicts can be scored objectively.</p>
+  <table>
+    <tr><th>Repo</th><th>Role</th></tr>
+    <tr><td><strong>furix-gemma-mvp</strong></td><td>The appliance: 15 containers, 5 agents, the AI Brain.</td></tr>
+    <tr><td><strong>logforge</strong></td><td>Synthetic security-log generator (22 formats, attack campaigns) + ground-truth labels.</td></tr>
+    <tr><td><strong>vulnforge</strong></td><td>Synthetic vulnerability-scan generator grounded in real CVE/KEV/EPSS + ground-truth labels.</td></tr>
+  </table>
+</div>
+
+<!-- ───────── 2 PRINCIPLES ───────── -->
+<div class="section" id="principles">
+  <h2>2 · The five design principles</h2>
+  <p class="lead">Every container's design follows from these. When a client asks "why is it built this way?",
+  the answer is always one of these five.</p>
+
+  <h3>① The LLM is the last resort</h3>
+  <p>Four layers each avoid an AI call: the <strong>verdict cache</strong> (seen this before?), <strong>deterministic
+  parsing</strong> (C6 pattern-matching), <strong>deterministic compliance mapping</strong> (rules + crosswalk +
+  embeddings), and <strong>on-demand narrative</strong> (heavy report agents run only for serious events). The model
+  is reached only when these can't answer.</p>
+
+  <h3>② One bus, one knowledge graph</h3>
+  <p>Logs (C2) and vulnerability scans (C3) flow through the <em>same</em> pipeline and are reasoned over the
+  <em>same</em> knowledge graph. "A scanner that also knows your alerts, and an AI that reasons over both, beats
+  three disconnected tools." Containers never call each other directly — they publish to the C5 bus.</p>
+
+  <h3>③ Privacy by construction</h3>
+  <p>The model never sees raw private data. C6 keeps real identifiers only long enough to join threat intel, then
+  the <strong>DAL</strong> redacts everything to placeholders before any prompt, and re-hydrates only after the
+  answer returns. The whole appliance is on-prem with a single outbound connection (threat-intel pull).</p>
+
+  <h3>④ Deterministic and probabilistic are partners</h3>
+  <p>Fast rules (C8 detection, C6 signals) catch the known-bad instantly and for free; the probabilistic model
+  reasons about the novel and writes the human narrative. Neither replaces the other — defense in depth.</p>
+
+  <h3>⑤ Graceful degradation</h3>
+  <p>Every external dependency has an in-process fallback: memory bus instead of Kafka, ring-buffer instead of
+  ClickHouse, TTL-dict instead of Valkey, static maps instead of the RAG graph, and <code>MOCK_LLM</code> instead
+  of Gemma. The full 15-container pipeline runs with zero external infrastructure — which is exactly what makes the
+  MVP portable and testable.</p>
+</div>
+
+<!-- ───────── 3 FLOW ───────── -->
+<div class="section" id="flow">
+  <h2>3 · End-to-end data flow</h2>
+  <p class="lead">One log's journey, left to right. Notice the model (C7) sits at the end of a long funnel of
+  cheaper work.</p>
+  <figure>
+  <svg viewBox="0 0 760 430" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,sans-serif" font-size="11">
+    <defs><marker id="ar" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#64748b"/></marker></defs>
+    <!-- ingest -->
+    <rect x="10" y="20" width="120" height="46" rx="6" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="70" y="40" text-anchor="middle" font-weight="bold">C2 Vector</text>
+    <text x="70" y="56" text-anchor="middle" font-size="9" fill="#475569">ingest · 3 lanes</text>
+    <rect x="10" y="76" width="120" height="40" rx="6" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="70" y="100" text-anchor="middle" font-size="10">C3 Scan Engine</text>
+
+    <line x1="130" y1="48" x2="170" y2="48" stroke="#64748b" stroke-width="1.5" marker-end="url(#ar)"/>
+    <line x1="130" y1="96" x2="170" y2="60" stroke="#64748b" stroke-width="1.5" marker-end="url(#ar)"/>
+
+    <!-- bus -->
+    <rect x="172" y="20" width="60" height="96" rx="6" fill="#fef3c7" stroke="#d97706"/>
+    <text x="202" y="62" text-anchor="middle" font-weight="bold" font-size="10" transform="rotate(-90 202 62)">C5 Kafka bus</text>
+
+    <line x1="232" y1="48" x2="270" y2="48" stroke="#64748b" stroke-width="1.5" marker-end="url(#ar)"/>
+
+    <!-- normalise -->
+    <rect x="272" y="24" width="150" height="92" rx="6" fill="#dcfce7" stroke="#16a34a"/>
+    <text x="347" y="44" text-anchor="middle" font-weight="bold">C6 Normaliser</text>
+    <text x="347" y="61" text-anchor="middle" font-size="8.5" fill="#475569">parse entities · join intel (C4)</text>
+    <text x="347" y="74" text-anchor="middle" font-size="8.5" fill="#475569">signals · candidate controls</text>
+    <text x="347" y="92" text-anchor="middle" font-size="8.5" fill="#475569">NO AI — deterministic</text>
+
+    <!-- fan out -->
+    <line x1="422" y1="70" x2="470" y2="200" stroke="#64748b" stroke-width="1.5" marker-end="url(#ar)"/>
+    <line x1="422" y1="70" x2="470" y2="60" stroke="#64748b" stroke-width="1.5" marker-end="url(#ar)"/>
+
+    <!-- ai brain -->
+    <rect x="472" y="24" width="270" height="150" rx="7" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5"/>
+    <text x="607" y="44" text-anchor="middle" font-weight="bold">C14 AI Brain — orchestrator</text>
+    <text x="607" y="62" text-anchor="middle" font-size="8.5" fill="#475569">1 cache (C13)  2 DAL redact  3 RAG (C9)</text>
+    <text x="607" y="75" text-anchor="middle" font-size="8.5" fill="#475569">4 deterministic mapping  5 run agents</text>
+    <rect x="486" y="86" width="110" height="24" rx="4" fill="#fff" stroke="#7c3aed"/>
+    <text x="541" y="102" text-anchor="middle" font-size="8">Risk · Compliance · Anomaly</text>
+    <rect x="486" y="114" width="110" height="24" rx="4" fill="#fff" stroke="#7c3aed"/>
+    <text x="541" y="130" text-anchor="middle" font-size="8">Remediation · Report</text>
+    <text x="541" y="156" text-anchor="middle" font-size="8" fill="#475569">(on-demand, high-sev only)</text>
+
+    <rect x="610" y="92" width="120" height="60" rx="6" fill="#ffedd5" stroke="#ea580c" stroke-width="1.5"/>
+    <text x="670" y="116" text-anchor="middle" font-weight="bold" font-size="10">C7 GEMMA</text>
+    <text x="670" y="132" text-anchor="middle" font-size="8.5" fill="#9a3412">gemma4:e4b</text>
+    <line x1="596" y1="122" x2="608" y2="122" stroke="#ea580c" stroke-width="1.5" marker-end="url(#ar)"/>
+
+    <!-- store -->
+    <rect x="472" y="190" width="270" height="50" rx="6" fill="#dcfce7" stroke="#16a34a"/>
+    <text x="607" y="210" text-anchor="middle" font-weight="bold" font-size="10">C8 Storage + Detection</text>
+    <text x="607" y="226" text-anchor="middle" font-size="8.5" fill="#475569">persist verdict · rules · alerts</text>
+    <line x1="607" y1="174" x2="607" y2="190" stroke="#64748b" stroke-width="1.5" marker-end="url(#ar)"/>
+
+    <rect x="300" y="190" width="150" height="24" rx="5" fill="#dcfce7" stroke="#16a34a"/>
+    <text x="375" y="206" text-anchor="middle" font-size="9">C9 Postgres (graph+vector)</text>
+    <rect x="300" y="218" width="150" height="22" rx="5" fill="#dcfce7" stroke="#16a34a"/>
+    <text x="375" y="233" text-anchor="middle" font-size="9">C10 ClickHouse (timeline)</text>
+    <rect x="300" y="244" width="150" height="22" rx="5" fill="#dcfce7" stroke="#16a34a"/>
+    <text x="375" y="259" text-anchor="middle" font-size="9">C13 Valkey (cache)</text>
+    <line x1="472" y1="215" x2="452" y2="215" stroke="#64748b" stroke-width="1.2" marker-end="url(#ar)"/>
+
+    <!-- operate -->
+    <rect x="10" y="300" width="170" height="30" rx="6" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="95" y="320" text-anchor="middle" font-size="10">C11 Dashboard (UI/API)</text>
+    <rect x="190" y="300" width="170" height="30" rx="6" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="275" y="320" text-anchor="middle" font-size="10">C12 Operations (metrics)</text>
+    <rect x="370" y="300" width="170" height="30" rx="6" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="455" y="320" text-anchor="middle" font-size="10">C15 Backup (snapshots)</text>
+    <rect x="550" y="300" width="170" height="30" rx="6" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="635" y="320" text-anchor="middle" font-size="10">C4 Intel Sync (IOC feed)</text>
+    <rect x="10" y="340" width="170" height="30" rx="6" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="95" y="360" text-anchor="middle" font-size="10">C1 nginx (TLS edge)</text>
+
+    <text x="365" y="400" text-anchor="middle" font-size="9" fill="#5b6b82">INGEST → BUS → ENRICH → REASON → STORE — with OPERATE containers supporting throughout</text>
+  </svg>
+  <figcaption>Figure 1 — The 15-container pipeline. Cheap deterministic work (green/blue) funnels into the expensive model (orange) only when necessary.</figcaption>
+  </figure>
+</div>
+
+<!-- ───────── 4 LATENCY ───────── -->
+<div class="section" id="latency">
+  <h2>4 · Why you still see lag — the latency reality</h2>
+  <p class="lead">A common and fair question: <em>"The model is on a GPU — why is it still slow?"</em> The honest
+  answer is that LLM latency is dominated by how language models generate text, not by whether a GPU is present.
+  This section explains it properly.</p>
+
+  <h3>4.1 LLMs generate one token at a time (autoregressive decoding)</h3>
+  <p>An LLM does not produce its whole answer at once. It generates <strong>one token (≈¾ of a word) at a time</strong>,
+  and each new token requires a <em>complete forward pass through the entire model</em>, re-reading everything
+  generated so far. A 600-token answer = 600 sequential passes. This is inherently serial and cannot be parallelised
+  <em>within a single response</em> — a GPU makes each pass faster, but it cannot remove the sequence.</p>
+
+  <div class="callout"><strong>Rule of thumb:</strong> response time ≈ <code>prefill</code> (read the prompt, fast and
+  parallel) + <code>output_tokens × per-token time</code> (generate the answer, slow and serial). <strong>Output
+  length is the single biggest driver of latency.</strong></div>
+
+  <figure>
+  <svg viewBox="0 0 700 180" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,sans-serif" font-size="10">
+    <text x="10" y="20" font-weight="bold">Where the time goes in one Gemma call</text>
+    <rect x="10" y="35" width="90" height="34" rx="4" fill="#bfdbfe" stroke="#2563eb"/>
+    <text x="55" y="50" text-anchor="middle" font-size="9">PREFILL</text>
+    <text x="55" y="63" text-anchor="middle" font-size="8" fill="#475569">read prompt</text>
+    <rect x="100" y="35" width="520" height="34" rx="4" fill="#fed7aa" stroke="#ea580c"/>
+    <text x="360" y="50" text-anchor="middle" font-size="9" font-weight="bold">DECODE — generate output tokens one by one (serial)</text>
+    <text x="360" y="63" text-anchor="middle" font-size="8" fill="#9a3412">this is where seconds accumulate; grows with output length</text>
+    <text x="55" y="92" text-anchor="middle" font-size="8" fill="#475569">fast, parallel</text>
+    <text x="360" y="92" text-anchor="middle" font-size="8" fill="#475569">~95% of the wall-clock time for our narrative agents</text>
+
+    <text x="10" y="125" font-size="9" fill="#5b6b82">Our agents' output budgets:  Risk/Anomaly ≈ short  ·  Remediation = up to 700 tokens  ·  Report = up to 900 tokens</text>
+    <text x="10" y="143" font-size="9" fill="#5b6b82">→ The Report and Remediation agents are the long ones you wait for; the analytical agents are near-instant.</text>
+  </svg>
+  <figcaption>Figure 2 — Prefill is cheap; decode dominates. Longer answers = proportionally longer waits.</figcaption>
+  </figure>
+
+  <h3>4.2 Why a GPU helps but doesn't make it instant</h3>
+  <ul>
+    <li><strong>Per-token speed is bound by memory bandwidth.</strong> Each token reads the model's weights from GPU
+    memory. Even a fast GPU has finite bandwidth, so there is a floor on per-token time that scales with model size.</li>
+    <li><strong>Concurrency ≠ single-request speed.</strong> A GPU can serve many requests at once (throughput), but
+    it cannot make one sequential generation finish sooner. Adding load improves total events/second, not the time
+    for any individual answer.</li>
+    <li><strong>Cold start.</strong> The first call after idle loads the model into GPU memory — seconds to tens of
+    seconds. We mitigate this by pre-warming and keeping the model resident.</li>
+  </ul>
+
+  <h3>4.3 The serving stack matters: Ollama vs vLLM</h3>
+  <p>The MVP currently serves Gemma via <strong>Ollama</strong>, which is excellent for convenience but is optimised
+  for single-stream use. Production targets <strong>vLLM</strong>, which adds:</p>
+  <table>
+    <tr><th>Capability</th><th>Ollama (MVP)</th><th>vLLM (production target)</th></tr>
+    <tr><td>Continuous batching (many requests share GPU passes)</td><td>Limited</td><td>Yes — large throughput gain under load</td></tr>
+    <tr><td>PagedAttention (efficient KV-cache memory)</td><td>No</td><td>Yes — more concurrent requests per GPU</td></tr>
+    <tr><td>Best for</td><td>Single user, demos, validation</td><td>Many concurrent agents/analysts</td></tr>
+  </table>
+  <p>So part of the lag you see is the <em>serving layer</em>, not the model itself — moving to vLLM on GPU is a
+  major, known lever.</p>
+
+  <h3>4.4 The levers we have to reduce latency</h3>
+  <table>
+    <tr><th>Lever</th><th>Effect</th><th>Status</th></tr>
+    <tr><td>Don't call the model at all (cache + deterministic routing)</td><td>Eliminates the latency entirely for most events — the biggest lever</td><td><span class="pill p-real">live</span></td></tr>
+    <tr><td>Run only needed agents (narrative on-demand)</td><td>Cuts ~4 calls/event to ~2 for routine events</td><td><span class="pill p-real">live</span></td></tr>
+    <tr><td>Lower <code>max_tokens</code> per agent</td><td>Fewer output tokens = proportionally faster</td><td><span class="pill p-real">tunable</span></td></tr>
+    <tr><td>vLLM continuous batching on GPU</td><td>10×+ concurrency; lower p95 under load</td><td><span class="pill p-road">roadmap</span></td></tr>
+    <tr><td>Quantization (e.g. 4-bit) / smaller variant</td><td>Faster per-token, less memory</td><td><span class="pill p-road">roadmap</span></td></tr>
+    <tr><td>GBDT "instinct" tier before the LLM</td><td>A tiny ML model answers the easy reasoning, skipping Gemma</td><td><span class="pill p-road">roadmap</span></td></tr>
+    <tr><td>Keep model warm (no cold-load)</td><td>Removes first-call penalty</td><td><span class="pill p-real">recommended</span></td></tr>
+  </table>
+
+  <div class="callout key"><strong>The architectural point:</strong> Furix's answer to LLM latency is not "buy a
+  bigger GPU" — it is "call the model as rarely as possible, and make each call as short as possible." The Routing
+  &amp; Cost benchmark exists precisely to prove how often we avoid the model altogether.</div>
+</div>
+
+<!-- ───────── 5 CONTAINERS ───────── -->
+<div class="section" id="containers">
+  <h2>5 · The 15 containers — deep dive</h2>
+  <p class="lead">For each: its role, how it works in the code, the concept behind it, and how the production version
+  differs. Maturity ratings reflect the <em>concept</em> (is the design right?) and the <em>MVP implementation</em>
+  (how complete is the code today?).</p>
+
+  <!-- C1 -->
+  <h3><span class="cnum">C1</span> nginx — TLS edge</h3>
+  <p><strong>Role:</strong> The only door into the appliance. Terminates TLS and proxies to the dashboard (C11).</p>
+  <p><strong>Concept:</strong> A single ingress choke point is where authentication, rate-limiting, and audit belong.
+  Nothing else in the appliance is reachable from outside — internal containers trust the network boundary nginx
+  enforces.</p>
+  <p><strong>Production vs MVP:</strong> <span class="pill p-real">concept</span> standard, battle-tested nginx config.
+  <span class="pill p-mvp">mvp</span> in lite mode the dashboard is hit directly; nginx is used in the docker-compose deployment.</p>
+
+  <!-- C2 -->
+  <h3><span class="cnum">C2</span> Vector — log ingestion &amp; priority lanes</h3>
+  <p><strong>Role:</strong> The SIEM front door. Accepts raw events, triages each into one of three priority lanes
+  (<code>HOT / WARM / COLD</code>), and publishes onto the bus. Throughput + routing, not understanding.</p>
+  <p><strong>How it works:</strong> <code>classify_lane()</code> regex-matches the raw text — HOT is checked first
+  ("a single scary keyword wins"). HOT triggers include <code>failed password, invalid user, mimikatz, beacon,
+  cobalt, ransom, exploit, cve-, c2, eternalblue</code>. A <code>LaneScheduler</code> holds three queues drained
+  strictly HOT→WARM→COLD. Crucially, <code>ingest_many()</code> enqueues <em>all</em> logs first, then drains once,
+  so every HOT event is processed before any WARM — the priority guarantee only matters under a backlog.</p>
+  <p><strong>Concept:</strong> Under a flood, a ransomware indicator must not wait behind a million routine logins.
+  Lanes are a contention-time guarantee.</p>
+  <p><strong>Production vs MVP:</strong> <span class="pill p-real">concept</span> this is <code>vector.dev</code>
+  (Rust) at 500K+ events/sec into Kafka topics <code>raw.HOT/WARM/COLD</code>. <span class="pill p-mvp">mvp</span> a
+  compact Python intake + the real lane scheduler so prioritisation is demonstrable in lite mode.</p>
+
+  <!-- C3 -->
+  <h3><span class="cnum">C3</span> Scan Engine — active vulnerability scanning</h3>
+  <p><strong>Role:</strong> The "go look" half of the platform. On demand, probes an asset, fingerprints its
+  services, matches them against known CVEs, and emits findings onto the <em>same bus as logs</em>.</p>
+  <p><strong>How it works:</strong> <code>scan(target, services)</code> takes service fingerprints (as nmap reports
+  them), substring-matches a CVE catalog, and publishes each hit to <code>scan.findings</code> — so a scan finding
+  flows through C6→C14→C8 exactly like a log. Catalog includes Zerologon (CVE-2020-1472), BlueKeep (CVE-2019-0708),
+  Exchange EoP (CVE-2024-21410), Apache path traversal (CVE-2021-41773).</p>
+  <p><strong>Concept:</strong> Unifying scans and logs onto one bus and one knowledge graph is the core Furix thesis —
+  correlation between "what's vulnerable" and "what's being attacked" is impossible in three disconnected tools.</p>
+  <p><strong>Production vs MVP:</strong> <span class="pill p-real">concept</span> drives OpenVAS/Tenable/Qualys-class
+  engines, 8-phase scan pipeline. <span class="pill p-mvp">mvp</span> a simulated scanner with a small CVE catalog —
+  enough to prove the unified-pipeline thesis.</p>
+
+  <!-- C4 -->
+  <h3><span class="cnum">C4</span> Intel Sync — threat intelligence</h3>
+  <p><strong>Role:</strong> Maintains a fresh cache of "known bad" indicators (malicious IPs, domains, file hashes,
+  CVE/KEV). Other containers ask "is this known-bad?" during enrichment.</p>
+  <p><strong>How it works:</strong> <code>refresh()</code> loads IOCs into the C13 cache keyed
+  <code>ioc:{kind}:{value}</code>; <code>is_known_bad(kind, value)</code> is an O(1) lookup that C6 calls per
+  extracted entity. Tracks last-sync time for health.</p>
+  <p><strong>Concept:</strong> Intel turns "an IP connected out" into "an IP connected to a known C2 server" — the
+  same event, a vastly different severity. The enrichment join is what creates that context.</p>
+  <p><strong>Production vs MVP:</strong> <span class="pill p-real">concept</span> a small Go binary that is the
+  <em>only outbound flow in the entire appliance</em> — pulls signed feed deltas from Furix Cloud every ~4 hours over
+  mTLS. <span class="pill p-mvp">mvp</span> a built-in feed seeded into the cache.</p>
+
+  <!-- C5 -->
+  <h3><span class="cnum">C5</span> Kafka — the message bus</h3>
+  <p><strong>Role:</strong> The spine. Containers publish to named topics; subscribers consume. Decoupling lets each
+  box scale, crash, and restart independently.</p>
+  <p><strong>How it works:</strong> A single <code>publish()/subscribe()/history()</code> interface backed by either
+  an in-process <code>_MemoryBus</code> (default) or a real Kafka adapter (<code>BUS_BACKEND=kafka</code>). The memory
+  bus fans out to handlers <em>outside its lock</em>, so one slow consumer can't block publishers, and a throwing
+  handler is caught and counted — one bad consumer never kills the bus. ~11 canonical topics:
+  <code>raw.HOT/WARM/COLD, scan.findings, normalized.events, detection.input, ai.enrichment, ai.verdicts,
+  intel.updates, kg.findings, timeline.events</code>.</p>
+  <p><strong>Concept:</strong> Publishers and consumers share one contract (topic + JSON message), so the backend
+  can swap memory↔Kafka without changing any container's logic. This is what makes "lite mode" and "production mode"
+  the same code.</p>
+  <p><strong>Production vs MVP:</strong> <span class="pill p-real">concept</span> Apache Kafka in KRaft mode (no
+  ZooKeeper), durable, replicated, at-least-once. <span class="pill p-mvp">mvp</span> memory backend by default;
+  Kafka adapter available.</p>
+
+  <!-- C6 -->
+  <h3><span class="cnum">C6</span> Normaliser — parse &amp; enrich (no AI)</h3>
+  <p><strong>Role:</strong> Turns ~20 messy vendor formats into one canonical event. Four deterministic stages, zero
+  LLM. The workhorse that makes data cheap for the AI Brain to reason about.</p>
+  <p><strong>How it works:</strong> (1) regex-extract entities (IPs, domains, CVEs, usernames) and fingerprint the
+  log type (CloudTrail, Okta, Windows EVTX, Zeek, auditd…); (2) join entities against C4 intel into
+  <code>ioc_hits</code>; (3) compute 7 behavioural <strong>signals</strong> (<code>malware, c2_or_exfil,
+  privilege_escalation, account_creation, lateral_movement, failed_logins, successful_logins</code>) and map
+  candidate CIS controls via the <code>KW</code> keyword map; (4) tag lineage and fan out to
+  <code>normalized.events</code>, <code>detection.input</code>, and <code>ai.enrichment</code>. The same triage maps
+  are imported by C14 as its deterministic fallback — one source of truth.</p>
+  <div class="callout"><strong>Code-quality signal:</strong> every keyword is word-boundary anchored
+  (<code>\b…\b</code>). A documented accuracy fix: bare substrings caused catastrophic false positives —
+  <code>"rce"</code> matched "sou<u>rce</u>", <code>"c2"</code> matched "<u>ec2</u>.amazonaws", <code>"s3"</code>
+  fired a control on benign S3 reads. This is the kind of rigor that separates a real detection engine from a demo.</div>
+  <p><strong>Production vs MVP:</strong> <span class="pill p-real">concept</span> Python + aiokafka, same four
+  stages, GeoIP + signature enrichment. <span class="pill p-mvp">mvp</span> a focused subset — the canonical event
+  shape and triage logic are real.</p>
+
+  <!-- C7 -->
+  <h3><span class="cnum">C7</span> Gemma — local model inference (the box under test)</h3>
+  <p><strong>Role:</strong> Runs the LLM locally; 100% on-prem, no outbound calls. The AI Brain (C14) is its only
+  client. <em>This is the component the entire MVP exists to validate.</em></p>
+  <p><strong>How it works:</strong> An OpenAI-compatible client (<code>complete_json</code>) calls
+  <code>gemma4:e4b</code>. It forces strict JSON output, retries 3× with a small temperature nudge and JSON-repair
+  (balancing truncated strings/braces) for robustness, and returns latency + token counts with each result.
+  <code>health()</code> probes with a tiny real completion (more reliable than <code>/v1/models</code>, which some
+  servers return null for). <code>MOCK_LLM=1</code> returns deterministic stubs for offline plumbing tests.</p>
+  <p><strong>Concept:</strong> The model is wrapped in retries, JSON repair, and validation so a stochastic component
+  behaves like a reliable service. The call itself is ~6 lines; the reliability scaffolding around it is the point.</p>
+  <p><strong>Production vs MVP:</strong> <span class="pill p-real">concept</span> vLLM serving a Gemma variant
+  (E2B/E4B/26B-MoE/31B) with batch scheduling, 16K context, and safety rails (kill-switch, 50KB prompt cap,
+  post-response PII scan). <span class="pill p-mvp">mvp</span> single endpoint via Ollama. See §4 for latency.</p>
+
+  <!-- C8 -->
+  <h3><span class="cnum">C8</span> Storage Writer + Detection Engine</h3>
+  <p><strong>Role:</strong> Two peer jobs. (1) Storage Writer persists canonical events + AI verdicts to C9
+  (relational) and C10 (timeline). (2) Detection Engine runs fast deterministic rules and raises alerts.</p>
+  <p><strong>How it works:</strong> Subscribes <code>normalized.events</code>, <code>detection.input</code>,
+  <code>ai.verdicts</code>. Five rules: <code>malware_execution</code> (critical),
+  <code>c2_or_exfil_or_ioc</code> (critical, fires on any IOC hit), <code>brute_force_success</code> (high =
+  failed+successful logins together), <code>privilege_escalation</code> (high), <code>unauthorized_account</code>
+  (high). A throwing rule is caught and counted so it can't stop the engine.</p>
+  <p><strong>Concept:</strong> Rules and the AI are partners — rules are instant and free and catch the known; the
+  model reasons about the novel. Note the deliberate non-duplication: C8 does <em>not</em> re-escalate to the AI
+  Brain because C6 already routes every event there.</p>
+  <p><strong>Production vs MVP:</strong> <span class="pill p-real">concept</span> Go + aiokafka, idempotent batch
+  writes, 500K rows/sec. <span class="pill p-mvp">mvp</span> in-process rules + writers; same topics and shapes.</p>
+
+  <!-- C9 -->
+  <h3><span class="cnum">C9</span> Postgres + AGE + pgvector — the knowledge graph</h3>
+  <p><strong>Role:</strong> One Postgres wearing three hats — relational (findings/verdicts/audit), graph (CIS→NIST→
+  HIPAA control relationships via Apache AGE), and vector (embedded compliance text via pgvector for RAG).</p>
+  <p><strong>How it works:</strong> The AI Brain retrieves relevant real controls/snippets from here to <em>ground</em>
+  the model's reasoning. A relevance floor (<code>RAG_SCORE_FLOOR=0.30</code>) drops weak matches so a novel log
+  isn't grounded in irrelevant controls. Embeddings use a security-domain model
+  (<code>SecureBERT2.0</code>), retrieved 35 → reranked 12 → final 6.</p>
+  <p><strong>Concept:</strong> Three query shapes, one store — "how are these related?" (graph), "what's semantically
+  similar?" (vector), "give me the rows" (SQL). Grounding in <em>your</em> environment is what stops the model
+  hallucinating compliance mappings.</p>
+  <p><strong>Production vs MVP:</strong> <span class="pill p-real">concept</span> PostgreSQL 16 + AGE + pgvector,
+  encrypted; the graph is the core asset. <span class="pill p-mvp">mvp</span> degrades to a static compliance map
+  when the DB isn't present (<code>RAG_ENABLED=0</code>), so the pipeline always runs.</p>
+
+  <!-- C10 -->
+  <h3><span class="cnum">C10</span> ClickHouse — columnar event timeline</h3>
+  <p><strong>Role:</strong> The "what happened, when" store — append-mostly, immutable, built for sub-second queries
+  over billions of rows. Powers the dashboard timeline and historical search.</p>
+  <p><strong>How it works:</strong> If <code>CLICKHOUSE_URL</code> is set it creates a
+  <code>timeline_events</code> MergeTree table ordered by timestamp; otherwise it falls back to an in-memory ring
+  buffer (10,000 rows) with the same <code>append()/recent()</code> surface. Columns: <code>ts, finding_id,
+  log_type, severity, summary</code>.</p>
+  <p><strong>Concept:</strong> Postgres answers "how are these related?"; ClickHouse answers "show every event in
+  order, fast." Using one database for both is the classic SIEM mistake this avoids — relational and analytical
+  workloads have opposite storage needs.</p>
+  <p><strong>Production vs MVP:</strong> <span class="pill p-real">concept</span> ClickHouse at 500K+ rows/sec,
+  10–15× compression, tiered HOT/WARM/COLD tables. <span class="pill p-mvp">mvp</span> ring buffer fallback.</p>
+
+  <!-- C11 -->
+  <h3><span class="cnum">C11</span> Dashboard — the user-facing box</h3>
+  <p><strong>Role:</strong> The only container an analyst touches — verdicts, timeline, alerts, the Ops view, and the
+  API to trigger analyses, batch ingest, scans, and backups.</p>
+  <p><strong>How it works:</strong> A FastAPI app (the unified console with Pipeline / Routing &amp; Cost / Gemma
+  Capacity tabs). Endpoints include <code>/api/analyze</code>, <code>/api/analyze/batch</code>,
+  <code>/api/health</code>, <code>/api/stress/*</code>, plus operational views.</p>
+  <p><strong>Concept:</strong> All user input behind one box means one place for authorization, rate-limiting, and
+  audit.</p>
+  <p><strong>Production vs MVP:</strong> <span class="pill p-real">concept</span> React SPA + FastAPI + WebSockets
+  behind nginx. <span class="pill p-mvp">mvp</span> FastAPI + static console — fully functional for the demo.</p>
+
+  <!-- C12 -->
+  <h3><span class="cnum">C12</span> Operations — observability</h3>
+  <p><strong>Role:</strong> The nervous system. Every container reports counters and latencies here; it exposes
+  Prometheus metrics and a health rollup. <em>This is what powers the Gemma Capacity benchmark.</em></p>
+  <p><strong>How it works:</strong> <code>incr()</code> for labelled counters, <code>observe()</code> for latency
+  samples, <code>latency_summary()</code> for p50/p95/p99/max/avg, a <code>timer</code> context manager,
+  <code>render_prometheus()</code> emitting real Prometheus exposition format, and <code>health()</code> rolling up
+  each container's probe (a sick probe never crashes the rollup).</p>
+  <p><strong>Concept:</strong> Built early because you can't tune what you can't see — the same numbers shown on the
+  capacity tab are what production would alert on.</p>
+  <p><strong>Production vs MVP:</strong> <span class="pill p-real">concept</span> Prometheus + Grafana + Loki +
+  Alertmanager. <span class="pill p-mvp">mvp</span> an in-process registry speaking the real Prometheus format — a
+  real Prometheus can scrape it unchanged.</p>
+
+  <!-- C13 -->
+  <h3><span class="cnum">C13</span> Valkey — cache (the affordability lever)</h3>
+  <p><strong>Role:</strong> Fast shared key-value memory. Its highest-value job is the <strong>verdict cache</strong>:
+  if C14 already reasoned about an identical finding, serve the cached verdict in microseconds instead of paying for
+  another Gemma call.</p>
+  <p><strong>How it works:</strong> <code>verdict_key(finding)</code> builds a stable SHA-256 key from the
+  <em>shape</em> of a finding — <code>{log_type, signals, sorted(candidate_controls)}</code> — explicitly
+  <em>not</em> its PII. Two structurally identical events hash to the same key, so the second is a cache hit that
+  skips Gemma entirely. 24-hour TTL. Falls back to an in-process TTL dict when Valkey isn't present.</p>
+  <p><strong>Concept:</strong> Caching is the single biggest reason an on-prem LLM is affordable — every hit is one
+  expensive call you didn't make. Keying on shape (not exact text) means semantically identical events share an
+  answer.</p>
+  <p><strong>Production vs MVP:</strong> <span class="pill p-real">concept</span> Valkey holding sessions, locks, the
+  DAL re-hydration table, and fresh IOCs. <span class="pill p-mvp">mvp</span> Redis client if reachable, else memory.</p>
+
+  <!-- C14 -->
+  <h3><span class="cnum">C14</span> AI Brain — the orchestrator</h3>
+  <p><strong>Role:</strong> The single decision layer between data and the model. For each finding it caches, redacts,
+  grounds, runs the agents, and merges one verdict. The model is the <em>last</em> thing it reaches for.</p>
+  <p><strong>How it works — six steps:</strong></p>
+  <ol>
+    <li><strong>Triage + redact:</strong> normalise the RAW log (so real IPs join intel), then DAL-redact the text
+    and the finding.</li>
+    <li><strong>Cache check (C13):</strong> on hit, return immediately — no model call.</li>
+    <li><strong>Ground (C9 RAG):</strong> use strong vector+graph matches, else fall back to validated static
+    controls.</li>
+    <li><strong>Deterministic compliance mapping first:</strong> rules + crosswalk + embeddings decide the controls;
+    the Gemma compliance-mapper runs <em>only</em> when nothing matched and fallback is enabled.</li>
+    <li><strong>Run agents:</strong> the 3 analytical agents in parallel; the 2 narrative agents (Remediation,
+    Report) only for high-severity events or on explicit request.</li>
+    <li><strong>Merge + warm cache:</strong> assemble one verdict (compliance fields from the authoritative
+    deterministic mapping, not raw LLM output), rehydrate placeholders, and cache the result.</li>
+  </ol>
+  <p><strong>Concept:</strong> The orchestration around the LLM — privacy, caching, grounding, deterministic-first
+  mapping, validation, cost-routing — is the real intellectual property. It turns a stochastic model into a
+  trustworthy, affordable service.</p>
+  <p><strong>Production vs MVP:</strong> <span class="pill p-real">concept</span> async orchestrator with a
+  three-tier router (cache → GBDT instinct → LLM) and CTG replay. <span class="pill p-road">roadmap</span> the GBDT
+  "instinct" tier (a tiny ML model that answers easy reasoning without the LLM) is the production middle layer not
+  yet in the MVP.</p>
+
+  <!-- C15 -->
+  <h3><span class="cnum">C15</span> Backup Coordinator — consistent snapshots</h3>
+  <p><strong>Role:</strong> One consistent snapshot across all stateful stores at the same logical instant, so a
+  restore yields a coherent system.</p>
+  <p><strong>How it works:</strong> Two phases — PREPARE gathers a point-in-time view of each store; COMMIT
+  serialises it, SHA-256 fingerprints it, writes the artifact + a manifest, then reads it back and re-hashes to
+  verify integrity ("trust but verify").</p>
+  <p><strong>Concept:</strong> Backup is a <em>consistency</em> problem, not a copy problem — the hard part is
+  freezing several independent databases at the same logical moment, and proving the artifact wasn't corrupted.</p>
+  <p><strong>Production vs MVP:</strong> <span class="pill p-real">concept</span> two-phase quiesce across
+  Kafka/PG/ClickHouse/Valkey, AES-encrypted artifacts, Ed25519-signed manifests, 3-2-1 off-site fan-out.
+  <span class="pill p-mvp">mvp</span> JSON snapshot + SHA-256 manifest with integrity re-verification.</p>
+</div>
+
+<!-- ───────── 6 DAL ───────── -->
+<div class="section" id="dal">
+  <h2>6 · The DAL — privacy by construction</h2>
+  <p class="lead">The Data Abstraction Layer (part of C14) guarantees the model never sees raw private data. It is the
+  reason "we send your logs to an AI" does not mean "we expose your data."</p>
+  <p><strong>How it works:</strong> Two complementary strategies. (1) <strong>Regex redaction</strong>
+  (<code>strip()</code>) over free text — emails, MACs, IPv6/IPv4, hostnames, secrets (<code>sk-…</code>,
+  <code>AKIA…</code>, JWTs). (2) <strong>Field-aware tokenization</strong> (<code>tokenize()</code>) for values that
+  no regex can catch — a bare username like "root", patient MRNs — based on which field they came from. Each value
+  maps to a stable placeholder (<code>{IPV4_001}</code>, <code>{USER_001}</code>), so the same value always gets the
+  same token. After the model answers, <code>rehydrate()</code> swaps placeholders back to real values.</p>
+  <div class="callout"><strong>Thoughtful detail:</strong> CVE IDs are <em>never</em> redacted — they're public
+  identifiers the model needs to reason. And HIPAA Safe-Harbor patterns (SSN, phone, DOB, VIN) are <em>opt-in</em>
+  (<code>DAL_HIPAA_MODE</code>) because they over-match security logs — a log timestamp would otherwise be redacted
+  as a date of birth. This shows the privacy layer is tuned for real data, not just theory.</div>
+  <p><strong>Concept:</strong> Privacy is enforced <em>structurally</em> — it's not a policy someone might forget, it's
+  a mandatory step in the pipeline. The model physically cannot receive un-redacted PII.</p>
+</div>
+
+<!-- ───────── 7 AGENTS ───────── -->
+<div class="section" id="agents">
+  <h2>7 · The five AI agents</h2>
+  <p class="lead">Each agent is a single, strict, focused Gemma call with a validated JSON contract. Splitting the
+  work into specialists (rather than one giant prompt) makes each call shorter, more accurate, and independently
+  cacheable.</p>
+  <table>
+    <tr><th>Agent</th><th>Question it answers</th><th>Cost profile</th></tr>
+    <tr><td><strong>Risk Scorer</strong></td><td>How dangerous is this? Severity + 0–100 score.</td><td>Deterministic by default (instant, no model)</td></tr>
+    <tr><td><strong>Compliance Mapper</strong></td><td>Which controls does this touch (CIS/NIST/HIPAA)?</td><td>Deterministic mapping first; model only as fallback</td></tr>
+    <tr><td><strong>Anomaly Detector</strong></td><td>Is this abnormal behaviour?</td><td>Deterministic by default (instant, no model)</td></tr>
+    <tr><td><strong>Remediation Generator</strong></td><td>What should we do about it?</td><td>Gemma call — high-severity events only</td></tr>
+    <tr><td><strong>Report Generator</strong></td><td>Write the human incident report.</td><td>Gemma call — high-severity events only</td></tr>
+  </table>
+  <div class="callout key">This table <em>is</em> the cost story: three of the five agents normally cost zero model
+  time, and the two that call Gemma run only for events that warrant a full write-up. A routine login touches the
+  model zero times.</div>
+</div>
+
+<!-- ───────── 8 COST ───────── -->
+<div class="section" id="cost">
+  <h2>8 · The cost model — why the LLM is the last resort</h2>
+  <p class="lead">A naive AI security tool sends every event to the LLM. At enterprise log volumes that is
+  financially and operationally impossible. Furix is built as a funnel that removes work at each stage.</p>
+  <figure>
+  <svg viewBox="0 0 620 250" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,sans-serif" font-size="10">
+    <text x="310" y="18" text-anchor="middle" font-weight="bold">The cost funnel — events removed at each tier</text>
+    <polygon points="60,40 560,40 470,80 150,80" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="310" y="64" text-anchor="middle">All events  →  Tier 0: Verdict cache (seen before? instant)</text>
+    <polygon points="150,84 470,84 430,124 190,124" fill="#dcfce7" stroke="#16a34a"/>
+    <text x="310" y="108" text-anchor="middle">Tier 1: Deterministic parse + signals (no model)</text>
+    <polygon points="190,128 430,128 400,168 220,168" fill="#dcfce7" stroke="#16a34a"/>
+    <text x="310" y="152" text-anchor="middle">Tier 2: Deterministic compliance mapping (no model)</text>
+    <polygon points="220,172 400,172 370,210 250,210" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="310" y="196" text-anchor="middle">Tier 3: On-demand narrative (high-sev only)</text>
+    <rect x="270" y="214" width="80" height="26" rx="4" fill="#ffedd5" stroke="#ea580c"/>
+    <text x="310" y="231" text-anchor="middle" font-weight="bold" font-size="9">GEMMA</text>
+    <text x="585" y="120" text-anchor="middle" font-size="9" fill="#5b6b82" transform="rotate(90 585 120)">fewer events as you go down ↓</text>
+  </svg>
+  <figcaption>Figure 3 — Each tier answers what it can and passes only the remainder down. Only the narrow tip reaches the model.</figcaption>
+  </figure>
+  <p>The <strong>Routing &amp; Cost</strong> benchmark in the console measures this funnel live: for every sample
+  log it reports the route taken (deterministic vs Gemma), the model's real response time when used, and the
+  headline KPI — <em>what percentage of events were resolved with no model at all.</em> That percentage is the cost
+  saving, made visible.</p>
+</div>
+
+<!-- ───────── 9 MEASURE ───────── -->
+<div class="section" id="measure">
+  <h2>9 · How we measure — percentiles &amp; saturation</h2>
+  <h3>Why percentiles, not averages</h3>
+  <p>Averages hide the painful tail. If 99 calls take 10s and one takes 5 minutes, the average looks fine while one
+  user had a terrible experience. Percentiles expose that:</p>
+  <ul>
+    <li><strong>p50 (median):</strong> half of calls were faster — the typical experience.</li>
+    <li><strong>p95:</strong> 95% were faster; the slowest 5% were worse — the "bad but not rare" case.</li>
+    <li><strong>p99:</strong> 99% were faster — the worst-case tail you must plan for.</li>
+  </ul>
+  <h3>Saturation</h3>
+  <p>The Gemma Capacity benchmark ramps concurrency (1, 2, 4, 8…) and watches throughput. The <strong>saturation
+  point</strong> is where adding concurrency stops increasing throughput and only adds latency — i.e. the model
+  server is full. That number is the direct input to hardware sizing: keep concurrency at or below where p95 stays
+  acceptable.</p>
+  <div class="callout">Because the sibling generators (logforge/vulnforge) ship ground-truth labels, accuracy can be
+  scored objectively too — precision/recall of threat detection and compliance mapping — not just speed.</div>
+</div>
+
+<!-- ───────── 10 ASSESSMENT ───────── -->
+<div class="section" id="assessment">
+  <h2>10 · Engineering assessment — how good is each container?</h2>
+  <p class="lead">An honest read on code quality and concept maturity. "Concept" = is the design the right one for
+  production? "MVP code" = how complete is today's implementation?</p>
+  <table>
+    <tr><th>Container</th><th>Concept</th><th>MVP code</th><th>Notes</th></tr>
+    <tr><td>C2 Vector</td><td><span class="star">★★★★★</span></td><td><span class="star">★★★★</span></td><td>Lane scheduler is real and demonstrable; bulk-then-drain logic is correct.</td></tr>
+    <tr><td>C3 Scan Engine</td><td><span class="star">★★★★★</span></td><td><span class="star">★★★</span></td><td>Unified-pipeline thesis proven; CVE catalog is small (by design).</td></tr>
+    <tr><td>C4 Intel Sync</td><td><span class="star">★★★★★</span></td><td><span class="star">★★★★</span></td><td>O(1) IOC join is the right primitive; feed is seeded, not live.</td></tr>
+    <tr><td>C5 Kafka bus</td><td><span class="star">★★★★★</span></td><td><span class="star">★★★★★</span></td><td>Clean dual-backend abstraction; fan-out-outside-lock is production-minded.</td></tr>
+    <tr><td>C6 Normaliser</td><td><span class="star">★★★★★</span></td><td><span class="star">★★★★★</span></td><td>Word-boundary fix shows real detection-engineering maturity.</td></tr>
+    <tr><td>C7 Gemma client</td><td><span class="star">★★★★★</span></td><td><span class="star">★★★★</span></td><td>Retries + JSON repair are robust; serving layer (Ollama→vLLM) is the upgrade.</td></tr>
+    <tr><td>C8 Storage+Detect</td><td><span class="star">★★★★★</span></td><td><span class="star">★★★★</span></td><td>Rules + AI partnership is right; no-double-escalate is a thoughtful detail.</td></tr>
+    <tr><td>C9 Postgres KG</td><td><span class="star">★★★★★</span></td><td><span class="star">★★★</span></td><td>Tri-modal store is the core asset; runs degraded (static map) in lite mode.</td></tr>
+    <tr><td>C10 ClickHouse</td><td><span class="star">★★★★★</span></td><td><span class="star">★★★★</span></td><td>Right tool for timeline; ring-buffer fallback keeps the demo running.</td></tr>
+    <tr><td>C11 Dashboard</td><td><span class="star">★★★★</span></td><td><span class="star">★★★★</span></td><td>One choke point is correct; production adds SPA + WebSockets.</td></tr>
+    <tr><td>C12 Operations</td><td><span class="star">★★★★★</span></td><td><span class="star">★★★★★</span></td><td>Real Prometheus format; genuinely usable observability.</td></tr>
+    <tr><td>C13 Valkey cache</td><td><span class="star">★★★★★</span></td><td><span class="star">★★★★★</span></td><td>Shape-based key is the clever bit; the affordability lever works as designed.</td></tr>
+    <tr><td>C14 AI Brain</td><td><span class="star">★★★★★</span></td><td><span class="star">★★★★</span></td><td>The IP. Six-step orchestration is real; GBDT instinct tier is roadmap.</td></tr>
+    <tr><td>C15 Backup</td><td><span class="star">★★★★★</span></td><td><span class="star">★★★★</span></td><td>Consistency-first framing + integrity re-verify is correct; crypto/off-site is roadmap.</td></tr>
+  </table>
+  <div class="callout key"><strong>Overall:</strong> The <em>concepts</em> are production-grade across the board —
+  this is a genuine enterprise architecture, not a toy. The <em>MVP code</em> faithfully implements those concepts
+  with deliberate simplifications (in-memory stores, seeded feeds, Ollama serving) that exist to make the appliance
+  portable and to focus effort on the one question that matters now: is Gemma good enough?</div>
+</div>
+
+<!-- ───────── 11 ROADMAP ───────── -->
+<div class="section" id="roadmap">
+  <h2>11 · Scope &amp; roadmap to production</h2>
+  <table>
+    <tr><th>Area</th><th>MVP today</th><th>Production target</th></tr>
+    <tr><td>Model serving</td><td>Ollama, single-stream</td><td>vLLM on GPU — continuous batching, PagedAttention</td></tr>
+    <tr><td>Reasoning tiers</td><td>cache → LLM</td><td>cache → <strong>GBDT instinct</strong> → LLM (skip the model for easy cases)</td></tr>
+    <tr><td>Correlation</td><td>each event independent</td><td>cross-event correlation (multi-step attack campaigns reasoned as one story)</td></tr>
+    <tr><td>Scale</td><td>single process, in-memory</td><td>Kafka partitioning + parallel workers; real PG/ClickHouse/Valkey</td></tr>
+    <tr><td>Data</td><td>synthetic (logforge/vulnforge)</td><td>validated against real Tenable/Nessus + real logs</td></tr>
+    <tr><td>Backup</td><td>local JSON + SHA-256</td><td>AES-encrypted, signed manifests, 3-2-1 off-site</td></tr>
+  </table>
+  <p class="mut">The next milestone is the real-Gemma benchmark (accuracy + capacity numbers for <code>gemma4:e4b</code>),
+  followed by vulnforge ingestion and cross-log correlation — the highest-impact detection-quality upgrade.</p>
+</div>
+
+<!-- ───────── 12 GLOSSARY ───────── -->
+<div class="section" id="glossary">
+  <h2>12 · Glossary</h2>
+  <table>
+    <tr><th>Term</th><th>Meaning</th></tr>
+    <tr><td>Autoregressive decoding</td><td>How LLMs generate text — one token at a time, each requiring a full model pass. The reason output length drives latency.</td></tr>
+    <tr><td>Prefill / Decode</td><td>The two phases of an LLM call: reading the prompt (fast, parallel) vs generating the answer (slow, serial).</td></tr>
+    <tr><td>Token</td><td>A chunk of text (~¾ of a word) — the unit LLMs read and generate in.</td></tr>
+    <tr><td>p50 / p95 / p99</td><td>Latency percentiles — the value under which 50% / 95% / 99% of calls complete. Honest alternatives to the average.</td></tr>
+    <tr><td>Saturation point</td><td>The concurrency beyond which more load adds latency, not throughput — the server is full.</td></tr>
+    <tr><td>IOC</td><td>Indicator of Compromise — a known-bad IP, domain, or file hash.</td></tr>
+    <tr><td>KEV</td><td>Known Exploited Vulnerability — a CVE confirmed to be exploited in the wild (prioritised).</td></tr>
+    <tr><td>RAG</td><td>Retrieval-Augmented Generation — grounding the model with retrieved real knowledge to prevent hallucination.</td></tr>
+    <tr><td>DAL</td><td>Data Abstraction Layer — the privacy layer that redacts PII before the model and rehydrates after.</td></tr>
+    <tr><td>Verdict cache</td><td>Cached AI answers keyed by event shape; a hit skips all model calls.</td></tr>
+    <tr><td>GBDT instinct tier</td><td>Roadmap: a small gradient-boosted model between cache and LLM that answers easy reasoning cheaply.</td></tr>
+    <tr><td>vLLM / Ollama</td><td>LLM serving engines. Ollama = convenient/single-stream (MVP); vLLM = high-throughput batching (production).</td></tr>
+  </table>
+  <p class="mut small" style="margin-top:30px;border-top:1px solid #d3dbe6;padding-top:10px">
+    Furix Gemma MVP — Architecture &amp; Concepts Deep Dive. Generated as the single source of truth for the
+    appliance. For the live system, see the console (Pipeline · Routing &amp; Cost · Gemma Capacity).</p>
+</div>
+
+</body>
+</html>
