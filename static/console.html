@@ -741,7 +741,11 @@ function renderForge(j,force){
   // done) always rebuilds.
   if(window._forgeHover && !force)return;
   const rows=j.rows||[];
-  const disp=[...rows].reverse().slice(0,60);
+  // Pin malicious + suspicious rows at the TOP (they carry the Ask Gemma button and
+  // are the whole point); fill with the most recent benign below them.
+  const hot=rows.filter(r=>r.truth==='malicious'||r.truth==='benign_suspicious');
+  const ben=rows.filter(r=>r.truth!=='malicious'&&r.truth!=='benign_suspicious');
+  const disp=[...hot,...ben.slice(-25).reverse()].slice(0,90);
   window._forgeDisp=disp;
   let h=`<tr><th>Source</th><th>Ground truth</th><th>MITRE</th><th>Our severity</th><th>Decided by</th><th>Result</th><th>Raw log</th><th></th></tr>`;
   disp.forEach((r,i)=>{
