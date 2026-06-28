@@ -202,7 +202,11 @@ def analyze(raw_log: str, log_type: str = "auto",
     finding = _redact_finding(raw_finding, dal)
 
     # 2. Verdict cache (C13): identical finding shape → skip the 5 Gemma calls.
-    cached = cache.get_verdict(finding)
+    #    BUT skip the cache when the caller explicitly named agents (e.g. analyst
+    #    clicked "Generate AI Report") — they want fresh narrative, not a cached
+    #    deterministic verdict that never ran the requested Gemma agents.
+    explicit = want_agents is not None
+    cached = None if explicit else cache.get_verdict(finding)
     if cached:
         return {"finding_id": _finding_id(raw_log), "log_type": finding["log_type"],
                 "finding": dal.rehydrate_obj(finding), "verdict": cached, "agents": [],
