@@ -412,13 +412,18 @@ async function runDemo(){
   await delay(250);setState('s3','active');
   const tokenSample=Object.values(dal.token_map||{}).slice(0,6);
   fill('s3',row('cache hit',result.cache_hit?'<span style="color:var(--ok)">YES — skipped all 5 Gemma calls</span>':'<span style="color:var(--mut)">miss — proceeding to agents</span>')+
-    row('PII redacted',`<strong>${dal.stripped||0}</strong> token(s) scrubbed before model sees log`)+
+    row('PII redacted',`<strong>${dal.stripped||0}</strong> identifier(s) scrubbed before the model sees the log`)+
+    row('BEFORE (raw)',`<span style="font-size:10.5px;color:#fca5a5">${esc((result.original_log||raw).slice(0,180))}</span>`)+
+    row('AFTER → model',`<span style="font-size:10.5px;color:#86efac">${esc((result.redacted_log||'').slice(0,180)||'—')}</span>`)+
     (tokenSample.length?row('DAL tokens',chips(tokenSample)):''));
   await delay(350);setState('s3','done',Math.round(overhead*.1));
   await delay(250);setState('s4','active');
+  const comp=result.compliance||{};
   fill('s4',row('mode',rag.available?'<span style="color:var(--ok)">vector + graph (RAG live)</span>':'<span style="color:var(--mut)">static map (RAG off)</span>')+
     row('controls',chips(rag.controls?.length?rag.controls:v.control_ids))+
-    row('snippets',`${(rag.snippets||[]).length} grounding snippet(s)`)+row('reason',esc(rag.reason||'static-map')));
+    row('mapping tier',`<strong>${esc(comp.primary_tier||'—')}</strong>${comp.llm_used?' <span style="color:var(--warn)">(LLM fallback)</span>':' <span style="color:var(--info)">(deterministic)</span>'}`)+
+    row('why these controls',`<span style="font-size:10.5px">${esc(comp.rationale||rag.reason||'static-map')}</span>`)+
+    row('snippets',`${(rag.snippets||[]).length} grounding snippet(s)`));
   await delay(400);setState('s4','done',Math.round(overhead*.1));
   await delay(250);setState('s5','active');
   const skipped=result.narrative?.skipped||[];const detMapped=v.control_ids||[];

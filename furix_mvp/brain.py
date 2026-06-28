@@ -279,6 +279,9 @@ def analyze(raw_log: str, log_type: str = "auto",
     return {
         "finding_id": _finding_id(raw_log), "log_type": finding.get("log_type", "generic"),
         "finding": finding, "verdict": verdict,
+        # Original vs DAL-redacted text, so the UI can show clients the privacy step.
+        "original_log": raw_log[:600],
+        "redacted_log": redacted[:600],
         "agents": [r.model_dump() for r in results],
         # Provenance for the mapping: which tier decided it, per-control sources,
         # whether the LLM was needed, and whether a human should review.
