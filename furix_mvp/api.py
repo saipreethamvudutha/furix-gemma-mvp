@@ -123,6 +123,34 @@ def llm_assess(req: AssessRequest) -> dict:
     }
 
 
+class AssessBatchRequest(BaseModel):
+    logs: list[str]
+
+
+@app.post("/api/llm-assess-batch")
+def llm_assess_batch(req: AssessBatchRequest) -> dict:
+    """Assess SEVERAL log lines in ONE Gemma call (vs one call per event). Far fewer
+    round-trips → lower total latency on a single-stream model server."""
+    logs = [l for l in (req.logs or []) if l][:6]
+    if not logs:
+        return {"assessments": [], "count": 0, "error": "no logs supplied"}
+    sys_p = ("You are a senior SOC analyst. You will receive several NUMBERED security log lines. "
+             "Assess EACH independently for malicious or suspicious activity, weighing source, actor, "
+             "geography, IP reputation, and action. Output ONE JSON object only: "
+             '{"assessments":[{"n":<line number>,"verdict":"malicious|suspicious|benign",'
+             '"severity":"critical|high|medium|low|informational","reasoning":"1 short sentence"}]} '
+             "with exactly one entry per input line.")
+    user = "\n".join(f"{i + 1}. {l[:600]}" for i, l in enumerate(logs))
+    r = llm.complete_json(sys_p, user, max_tokens=min(1600, 400 + 220 * len(logs)))
+    arr = r.get("assessments") if isinstance(r.get("assessments"), list) else []
+    return {
+        "assessments": arr, "count": len(logs),
+        "source": r.source, "latency_ms": r.latency_ms, "error": r.error,
+        "prompt": f"=== SYSTEM ===\n{getattr(r, 'system', '')}\n\n=== USER ===\n{getattr(r, 'user', '')}",
+        "raw": getattr(r, "raw", ""),
+    }
+
+
 # ── Analysis ──────────────────────────────────────────────────────────────────
 @app.post("/api/analyze")
 def analyze(req: AnalyzeRequest) -> dict:

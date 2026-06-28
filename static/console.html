@@ -303,7 +303,9 @@
       <h2>Live detection scorecard — verdicts vs ground truth</h2>
       <div class="cards" id="f-kpis"></div>
       <div class="callout" id="f-callout"></div>
-      <div style="font-size:11.5px;color:var(--mut);margin-top:10px">Tip: click <b>🤖 Ask Gemma</b> on any malicious/suspicious row to send that exact log to the model and compare its verdict to the ground truth.</div>
+      <div style="font-size:11.5px;color:var(--mut);margin-top:10px">Tip: click <b>🤖 Ask Gemma</b> on any row to assess it individually, or
+        <button onclick="batchAssessForge()" style="cursor:pointer;background:#241a3a;color:#a78bfa;border:1px solid #7c3aed;border-radius:6px;padding:3px 10px;font-size:11px;font-weight:600">🤖 Batch-assess all flagged (1 call)</button>
+        to send several events to Gemma in a single call.</div>
       <table id="f-table"></table>
       <div id="f-assess" style="display:none;margin-top:14px"></div>
     </div>
@@ -785,8 +787,39 @@ async function assessForge(i){
       </div>
       <div style="margin-top:10px"><b>Gemma's reasoning:</b> ${esc(r.reasoning||'—')}</div>
       <div style="color:var(--mut);font-size:11px;margin-top:8px">Real model call · ${r.latency_ms}ms · source ${esc(r.source||'—')}</div>
-      <details style="margin-top:8px"><summary style="cursor:pointer;color:var(--acc);font-size:11.5px">▸ Show the exact log sent to Gemma</summary>
-        <pre style="white-space:pre-wrap;word-break:break-word;background:#0b0f17;border:1px solid var(--line);border-radius:6px;padding:8px;max-height:200px;overflow:auto;font-size:10.5px;color:#cbd5e1">${esc(row.raw)}</pre></details>
+      <details style="margin-top:8px"><summary style="cursor:pointer;color:var(--acc);font-size:11.5px">▸ Show the exact prompt sent to Gemma</summary>
+        <pre style="white-space:pre-wrap;word-break:break-word;background:#0b0f17;border:1px solid var(--line);border-radius:6px;padding:8px;max-height:240px;overflow:auto;font-size:10.5px;color:#cbd5e1">${esc(r.prompt||row.raw)}</pre></details>
+      <details style="margin-top:6px"><summary style="cursor:pointer;color:var(--acc);font-size:11.5px">▸ Show Gemma's raw response</summary>
+        <pre style="white-space:pre-wrap;word-break:break-word;background:#0b0f17;border:1px solid var(--line);border-radius:6px;padding:8px;max-height:200px;overflow:auto;font-size:10.5px;color:#86efac">${esc(r.raw||'—')}</pre></details>
+    </div>`;
+  }catch(e){panel.innerHTML=`<div class="callout warn">Failed: ${esc(e.message)}</div>`}
+}
+
+async function batchAssessForge(){
+  const hot=(window._forgeDisp||[]).filter(r=>r.truth==='malicious'||r.truth==='benign_suspicious').slice(0,6);
+  if(!hot.length){$('#f-err').textContent='No flagged events to assess yet — start the feed first.';return}
+  const panel=$('#f-assess');panel.style.display='block';panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+  panel.innerHTML=`<div class="callout" style="background:#241a3a;border-color:#7c3aed">🤖 Sending <b>${hot.length}</b> flagged events to Gemma in <b>ONE</b> call… (~40–70s)</div>`;
+  try{
+    const r=await(await fetch('/api/llm-assess-batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({logs:hot.map(x=>x.raw)})})).json();
+    const a=r.assessments||[];
+    if(!a.length){panel.innerHTML=`<div class="callout warn">Gemma returned no assessments — ${esc(r.error||'fallback')} (source ${esc(r.source||'—')}).</div>`;return}
+    let trs='';
+    hot.forEach((h,idx)=>{
+      const v=a.find(x=>x&&x.n===idx+1)||a[idx]||{};
+      const caught=(v.verdict==='malicious')||(h.truth==='benign_suspicious'&&v.verdict&&v.verdict!=='benign');
+      trs+=`<tr>
+        <td style="font-size:10.5px"><span style="color:#f87171;font-weight:600">${esc(h.truth)}</span> ${esc(h.mitre||'')}</td>
+        <td><b style="color:#a78bfa">${esc(v.verdict||'?')}</b> · ${sev(v.severity)}</td>
+        <td><span class="pill ${caught?'route-det':'route-llm'}">${caught?'✓':'✗'}</span></td>
+        <td style="font-size:10.5px;color:var(--mut)">${esc(v.reasoning||'—')}</td></tr>`;
+    });
+    panel.innerHTML=`<div class="callout" style="background:#241a3a;border-color:#7c3aed">
+      <b>Batch assessment</b> — ${hot.length} events assessed in <b>ONE</b> Gemma call · <b>${r.latency_ms}ms total</b>
+      (≈${Math.round(r.latency_ms/hot.length)}ms/event). Sent separately that would be ${hot.length} round-trips.
+      <table style="margin-top:8px"><tr><th>Ground truth</th><th>Gemma verdict</th><th></th><th>Reasoning</th></tr>${trs}</table>
+      <details style="margin-top:8px"><summary style="cursor:pointer;color:var(--acc);font-size:11.5px">▸ Show the exact prompt sent to Gemma</summary>
+        <pre style="white-space:pre-wrap;word-break:break-word;background:#0b0f17;border:1px solid var(--line);border-radius:6px;padding:8px;max-height:240px;overflow:auto;font-size:10.5px;color:#cbd5e1">${esc(r.prompt||'—')}</pre></details>
     </div>`;
   }catch(e){panel.innerHTML=`<div class="callout warn">Failed: ${esc(e.message)}</div>`}
 }
