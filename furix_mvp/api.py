@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import brain, config, db, llm, rag, pipeline, config_checks, stress
+from . import brain, config, db, llm, rag, pipeline, config_checks, stress, cloud_sync
 from .schemas import AnalyzeRequest
 from .samples import SAMPLE_LOGS
 from .containers import (c12_operations as ops, c8_storage_detect as c8,
@@ -121,6 +121,32 @@ def llm_assess(req: AssessRequest) -> dict:
         "prompt": f"=== SYSTEM ===\n{getattr(r, 'system', '')}\n\n=== USER ===\n{getattr(r, 'user', '')}",
         "raw": getattr(r, "raw", ""),
     }
+
+
+# ── Cloud ↔ Appliance bundle bridge ─────────────────────────────────────────
+@app.get("/api/bundle/status")
+def bundle_status() -> dict:
+    """Current baseline graph: loaded?, verified?, tenant/version, node/edge counts."""
+    return cloud_sync.status()
+
+
+@app.post("/api/bundle/sync")
+def bundle_sync() -> dict:
+    """HTTP-pull the latest signed bundle from Furix Cloud and load it as baseline."""
+    try:
+        return {"ok": True, **cloud_sync.sync_from_cloud()}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": str(e), **cloud_sync.status()}
+
+
+@app.post("/api/bundle/load-sample")
+def bundle_load_sample() -> dict:
+    """Load the bundled sample (for demoing the appliance side before Cloud is live)."""
+    sample = str(_STATIC.parent / "deploy" / "sample-bundle.json")
+    try:
+        return {"ok": True, **cloud_sync.load_local(sample)}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": str(e), **cloud_sync.status()}
 
 
 class AssessBatchRequest(BaseModel):

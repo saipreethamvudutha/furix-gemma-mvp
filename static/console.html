@@ -146,6 +146,9 @@
     <div class="tab" id="tab-forge" onclick="switchTab('forge')">
       🔴 LogForge Feed<span class="sub">real attack data → verdicts vs ground truth</span>
     </div>
+    <div class="tab" id="tab-baseline" onclick="switchTab('baseline')">
+      ☁️ Baseline (Cloud)<span class="sub">pull the signed bundle → load baseline graph</span>
+    </div>
   </div>
 
   <!-- ════ PIPELINE ════ -->
@@ -321,6 +324,34 @@
       <div id="f-assess" style="display:none;margin-top:14px"></div>
     </div>
   </div>
+
+  <!-- ════ BASELINE (CLOUD BRIDGE) ════ -->
+  <div id="view-baseline" class="hide">
+    <div class="card">
+      <h2>☁️ Cloud → Appliance bridge — load the baseline knowledge graph</h2>
+      <p class="lead">Furix Cloud extracts a tenant subgraph from its master knowledge graph (CIS/NIST/HIPAA + MITRE +
+        the tenant's assets), serializes it into a <b>signed bundle</b>, and serves it. The appliance <b>pulls</b> that
+        bundle, <b>verifies</b> it (graph hash; signature stubbed for the walking skeleton), and <b>loads</b> it as the
+        baseline graph that the SIEM/SCAN engines ground findings to. One integration point: the bundle.</p>
+      <div class="controls-row">
+        <button class="run" onclick="syncBaseline()">☁️ Sync from Cloud (HTTP pull)</button>
+        <button class="run" style="background:#1e293b" onclick="loadSampleBaseline()">Load sample bundle</button>
+      </div>
+      <p class="note">ⓘ If <code>CLOUD_BUNDLE_URL</code> isn't set yet, "Sync from Cloud" tells you so — use "Load sample
+        bundle" to demo the appliance side until the Cloud endpoint is live. The Cloud team builds its emitter to
+        <code>docs/BUNDLE-CONTRACT.md</code>.</p>
+      <div class="err" id="b-err"></div>
+    </div>
+    <div class="card hide" id="b-results">
+      <h2>Baseline graph status</h2>
+      <div class="cards" id="b-kpis"></div>
+      <div class="callout" id="b-callout"></div>
+      <div class="grid2" style="margin-top:12px">
+        <div><div class="controls-label">Nodes (sample)</div><table id="b-nodes"></table></div>
+        <div><div class="controls-label">Edges (sample)</div><table id="b-edges"></table></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -332,10 +363,11 @@ function sev(s){return`<span class="sev sev-${esc(s||'medium')}">${esc(s||'?')}<
 function delay(ms){return new Promise(r=>setTimeout(r,ms))}
 
 function switchTab(t){
-  ['pipeline','routing','gemma','ingest','forge'].forEach(x=>{
+  ['pipeline','routing','gemma','ingest','forge','baseline'].forEach(x=>{
     document.getElementById('tab-'+x).classList.toggle('on',x===t);
     document.getElementById('view-'+x).classList.toggle('hide',x!==t);
   });
+  if(t==='baseline')loadBaselineStatus();
 }
 
 async function loadHealth(){
@@ -882,6 +914,55 @@ function runPipelineBatch(){
   const lines=$('#p-batch-input').value.split('\n').map(l=>l.trim()).filter(Boolean);
   if(!lines.length){return}
   startBatch('p-batch',lines.map((l,i)=>({raw:l,label:'log '+(i+1)})));
+}
+
+/* ════ BASELINE (CLOUD BRIDGE) ════ */
+async function loadBaselineStatus(){
+  try{renderBaseline(await(await fetch('/api/bundle/status')).json())}catch(e){}
+}
+async function syncBaseline(){
+  $('#b-err').textContent='☁️ Pulling latest bundle from Cloud…';
+  try{
+    const j=await(await fetch('/api/bundle/sync',{method:'POST'})).json();
+    if(!j.ok&&j.error)$('#b-err').textContent='Sync failed: '+j.error;else $('#b-err').textContent='';
+    renderBaseline(j);
+  }catch(e){$('#b-err').textContent='Failed: '+e.message}
+}
+async function loadSampleBaseline(){
+  $('#b-err').textContent='Loading sample bundle…';
+  try{
+    const j=await(await fetch('/api/bundle/load-sample',{method:'POST'})).json();
+    $('#b-err').textContent=j.ok?'':('Load failed: '+(j.error||''));
+    renderBaseline(j);
+  }catch(e){$('#b-err').textContent='Failed: '+e.message}
+}
+function renderBaseline(s){
+  if(!s||typeof s.loaded==='undefined')return;
+  $('#b-results').classList.remove('hide');
+  const v=s.verified?'<span style="color:var(--ok)">verified ✓</span>':(s.loaded?'<span style="color:var(--warn)">unverified</span>':'—');
+  $('#b-kpis').innerHTML=`
+    <div class="kpi"><div class="k">Baseline loaded</div><div class="v ${s.loaded?'g':'r'}">${s.loaded?'YES':'no'}</div></div>
+    <div class="kpi"><div class="k">Integrity</div><div class="v">${v}</div></div>
+    <div class="kpi"><div class="k">Graph nodes</div><div class="v a">${s.node_count||0}</div></div>
+    <div class="kpi"><div class="k">Graph edges</div><div class="v a">${s.edge_count||0}</div></div>
+    <div class="kpi"><div class="k">Tenant</div><div class="v" style="font-size:14px">${esc(s.tenant_id||'—')}</div></div>
+    <div class="kpi"><div class="k">Version</div><div class="v" style="font-size:13px">${esc(s.version||'—')}</div></div>`;
+  $('#b-callout').innerHTML=s.loaded
+    ?`Baseline graph <b>${esc(s.bundle_id||'')}</b> loaded from <b>${esc(s.source||'—')}</b> — <b>${s.node_count}</b> nodes,
+       <b>${s.edge_count}</b> edges, frameworks ${esc((s.frameworks||[]).join(', ')||'—')}.
+       ${s.error?`<div style="color:var(--warn);font-size:11.5px;margin-top:6px">⚠ ${esc(s.error)}</div>`:''}
+       <div style="color:var(--mut);font-size:11.5px;margin-top:6px">Node types: ${Object.entries(s.node_types||{}).map(([k,n])=>esc(k)+'×'+n).join(' · ')||'—'}
+       &nbsp;·&nbsp; Cloud URL: ${esc(s.cloud_url||'not set')}</div>`
+    :`No baseline loaded yet. Pull from Cloud or load the sample bundle.`;
+  const nodes=s.sample_nodes||[],edges=s.sample_edges||[];
+  $('#b-nodes').innerHTML=`<tr><th>id</th><th>type</th><th>label</th></tr>`+nodes.map(n=>
+    `<tr><td style="font-size:10px;font-family:ui-monospace,monospace">${esc(n.id)}</td>
+      <td style="font-size:10.5px;color:var(--purple)">${esc(n.type)}</td>
+      <td style="font-size:10.5px">${esc(n.label||'')}</td></tr>`).join('');
+  $('#b-edges').innerHTML=`<tr><th>from</th><th>rel</th><th>to</th></tr>`+edges.map(e=>
+    `<tr><td style="font-size:10px;font-family:ui-monospace,monospace">${esc(e.src)}</td>
+      <td style="font-size:10.5px;color:var(--ok)">${esc(e.rel)}</td>
+      <td style="font-size:10px;font-family:ui-monospace,monospace">${esc(e.dst)}</td></tr>`).join('');
 }
 
 buildPipeline();loadSamples();loadHealth();

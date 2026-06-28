@@ -1,0 +1,126 @@
+{
+  "manifest": {
+    "bundle_id": "bundle-sample-0001",
+    "tenant_id": "exargen",
+    "version": "2026.06.28-1",
+    "schema_version": "1.0",
+    "created_at": "2026-06-28T00:00:00Z",
+    "frameworks": [
+      "CIS",
+      "NIST",
+      "HIPAA",
+      "MITRE"
+    ],
+    "node_count": 10,
+    "edge_count": 7,
+    "graph_sha256": "02b25fd8cc7de0b4796166d892c1777536298f7c422172dbb54bd265b7a27785",
+    "signature": "STUB"
+  },
+  "graph": {
+    "nodes": [
+      {
+        "id": "cis-6",
+        "type": "control",
+        "framework": "CIS",
+        "label": "Control 6 \u2014 Access Control Management"
+      },
+      {
+        "id": "cis-10",
+        "type": "control",
+        "framework": "CIS",
+        "label": "Control 10 \u2014 Malware Defenses"
+      },
+      {
+        "id": "nist-PR.AA-01",
+        "type": "control",
+        "framework": "NIST",
+        "label": "PR.AA-01 \u2014 Identities & credentials"
+      },
+      {
+        "id": "hipaa-164.312a",
+        "type": "control",
+        "framework": "HIPAA",
+        "label": "164.312(a) \u2014 Access control"
+      },
+      {
+        "id": "mitre-T1078.004",
+        "type": "technique",
+        "framework": "MITRE",
+        "label": "T1078.004 Valid Accounts: Cloud"
+      },
+      {
+        "id": "mitre-T1071.001",
+        "type": "technique",
+        "framework": "MITRE",
+        "label": "T1071.001 C2: Web Protocols"
+      },
+      {
+        "id": "host-WS-SYS-000",
+        "type": "host",
+        "label": "WS-SYS-000",
+        "props": {
+          "os": "Windows",
+          "role": "workstation"
+        }
+      },
+      {
+        "id": "host-FW01",
+        "type": "firewall",
+        "label": "FW01",
+        "props": {
+          "vendor": "Palo Alto"
+        }
+      },
+      {
+        "id": "user-mwilliams72",
+        "type": "user",
+        "label": "mwilliams72",
+        "props": {
+          "dept": "finance"
+        }
+      },
+      {
+        "id": "subnet-10.2.0.0_16",
+        "type": "subnet",
+        "label": "10.2.0.0/16"
+      }
+    ],
+    "edges": [
+      {
+        "src": "cis-6",
+        "dst": "nist-PR.AA-01",
+        "rel": "maps_to"
+      },
+      {
+        "src": "nist-PR.AA-01",
+        "dst": "hipaa-164.312a",
+        "rel": "maps_to"
+      },
+      {
+        "src": "mitre-T1078.004",
+        "dst": "cis-6",
+        "rel": "mitigated_by"
+      },
+      {
+        "src": "mitre-T1071.001",
+        "dst": "cis-10",
+        "rel": "mitigated_by"
+      },
+      {
+        "src": "user-mwilliams72",
+        "dst": "host-WS-SYS-000",
+        "rel": "uses"
+      },
+      {
+        "src": "host-WS-SYS-000",
+        "dst": "subnet-10.2.0.0_16",
+        "rel": "in_subnet"
+      },
+      {
+        "src": "host-FW01",
+        "dst": "subnet-10.2.0.0_16",
+        "rel": "protects"
+      }
+    ]
+  }
+}
