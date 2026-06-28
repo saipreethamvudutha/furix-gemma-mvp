@@ -716,8 +716,9 @@ function endForge(j){
   $('#f-prog').classList.remove('show');
   $('#f-run').style.display='inline-block';$('#f-stop').style.display='none';$('#f-stop').textContent='■ Stop';
   if(j&&j.state==='error')$('#f-err').textContent='Failed: '+(j.error||'unknown');
+  else if(j&&j.summary)renderForge(j,true);   // final stable render — buttons clickable
 }
-function renderForge(j){
+function renderForge(j,force){
   const pct=j.total?Math.round(100*j.progress/j.total):0;
   $('#f-bar').style.width=pct+'%';
   $('#f-pmsg').textContent=j.state==='running'?'streaming events through the pipeline…':j.state;
@@ -735,6 +736,10 @@ function renderForge(j){
     <b>${s.suspicious}</b> suspicious, <b>${s.benign}</b> benign sample. Caught <b>${s.tp}</b> of
     <b>${s.malicious}</b> malicious (recall ${recPct}%) with <b>${s.fp}</b> false alarms. Missed events are
     typically subtle multi-step campaign steps that need cross-log correlation (roadmap).`;
+  // Freeze the table while the user's mouse is over it (so the 0.7s poll re-render
+  // doesn't destroy the button they're about to click). A forced render (feed
+  // done) always rebuilds.
+  if(window._forgeHover && !force)return;
   const rows=j.rows||[];
   const disp=[...rows].reverse().slice(0,60);
   window._forgeDisp=disp;
@@ -783,6 +788,12 @@ async function assessForge(i){
 }
 
 buildPipeline();loadSamples();loadHealth();
+// Pause the LogForge table's live re-render while the mouse is over it, so the
+// "Ask Gemma" buttons stay put long enough to click during a running feed.
+(function(){const ft=document.getElementById('f-table');if(ft){
+  ft.addEventListener('mouseenter',()=>window._forgeHover=true);
+  ft.addEventListener('mouseleave',()=>window._forgeHover=false);
+}})();
 </script>
 </body>
 </html>
