@@ -143,6 +143,9 @@
     <div class="tab" id="tab-ingest" onclick="switchTab('ingest')">
       Ingestion<span class="sub">events/sec · how many logs at once</span>
     </div>
+    <div class="tab" id="tab-forge" onclick="switchTab('forge')">
+      Live Forge Feed<span class="sub">real attack data → verdicts vs ground truth</span>
+    </div>
   </div>
 
   <!-- ════ PIPELINE ════ -->
@@ -267,6 +270,42 @@
       <div class="callout" id="i-callout"></div>
     </div>
   </div>
+
+  <!-- ════ LIVE FORGE FEED ════ -->
+  <div id="view-forge" class="hide">
+    <div class="card">
+      <h2>Live Forge Feed — real attack data flowing through the appliance</h2>
+      <p class="lead">Streams a <b>logforge</b> bundle (realistic, correlated logs with hidden ground-truth labels)
+        through the full pipeline one event at a time, scoring each verdict against the known-correct answer — live.
+        Watch real benign traffic and injected attacks flow in, and see which the appliance catches (TP) vs misses
+        (FN). Generate a bundle first with <code>logforge generate … --out PATH</code>, then point at that path.</p>
+      <div class="controls-row">
+        <div class="ctl" style="flex:1;min-width:280px"><label>Bundle path (on the server)</label>
+          <input type="text" id="f-bundle" style="width:100%" value="/home/preetham/logforge/bundles/demo"></div>
+        <div class="ctl"><label>Benign sample cap</label><input type="number" id="f-limit" value="80" min="10" max="2000"></div>
+        <div class="ctl"><label>Speed</label>
+          <select id="f-speed">
+            <option value="250">Slow (watchable)</option>
+            <option value="120" selected>Normal</option>
+            <option value="30">Fast</option>
+            <option value="0">Max</option>
+          </select></div>
+        <button class="run" id="f-run" onclick="runForge()">▶ Start feed</button>
+        <button class="run" id="f-stop" onclick="stopForge()" style="background:#7f1d1d;display:none">■ Stop</button>
+      </div>
+      <p class="note">⏱ Verdicts are deterministic (no model) — each resolves in ms; the delay between events just
+        makes the stream watchable. ALL malicious + suspicious events are included; benign is sampled.</p>
+      <div class="progress" id="f-prog"><div class="bar"><i id="f-bar"></i></div>
+        <div class="pmeta"><span id="f-pmsg">idle</span><span id="f-pcount"></span></div></div>
+      <div class="err" id="f-err"></div>
+    </div>
+    <div class="card hide" id="f-results">
+      <h2>Live detection scorecard — verdicts vs ground truth</h2>
+      <div class="cards" id="f-kpis"></div>
+      <div class="callout" id="f-callout"></div>
+      <table id="f-table"></table>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -278,7 +317,7 @@ function sev(s){return`<span class="sev sev-${esc(s||'medium')}">${esc(s||'?')}<
 function delay(ms){return new Promise(r=>setTimeout(r,ms))}
 
 function switchTab(t){
-  ['pipeline','routing','gemma','ingest'].forEach(x=>{
+  ['pipeline','routing','gemma','ingest','forge'].forEach(x=>{
     document.getElementById('tab-'+x).classList.toggle('on',x===t);
     document.getElementById('view-'+x).classList.toggle('hide',x!==t);
   });
@@ -640,6 +679,76 @@ function renderIngest(j){
     <div style="color:var(--mut);font-size:11.5px;margin-top:6px">Decided by: ${byEng||'—'}</div>
     <div style="color:var(--mut);font-size:11.5px;margin-top:4px">The deterministic engine is never the ingestion
     bottleneck; production scales this horizontally (Kafka partitioning + parallel workers) to 500K+/sec.</div>`;
+}
+
+/* ════ LIVE FORGE FEED ════ */
+let _forgeJob=null,_forgePoll=null;
+async function runForge(){
+  const bundle=$('#f-bundle').value.trim();
+  if(!bundle){$('#f-err').textContent='Enter the bundle path on the server.';return}
+  $('#f-err').textContent='';$('#f-results').classList.remove('hide');
+  $('#f-prog').classList.add('show');$('#f-bar').style.width='0%';
+  $('#f-run').style.display='none';$('#f-stop').style.display='inline-block';
+  const params={bundle,limit:Math.max(10,Math.min(2000,parseInt($('#f-limit').value)||80)),
+    delay_ms:parseInt($('#f-speed').value)||0};
+  try{
+    const r=await fetch('/api/stress/start',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({scenario:'forge',params})});
+    if(!r.ok)throw new Error('HTTP '+r.status+': '+await r.text());
+    _forgeJob=(await r.json()).job_id;
+    _forgePoll=setInterval(async()=>{
+      try{
+        const j=await(await fetch('/api/stress/status?id='+_forgeJob)).json();
+        renderForge(j);
+        if(j.state==='done'||j.state==='error')endForge(j);
+      }catch(e){endForge({state:'error',error:e.message})}
+    },700);
+  }catch(e){$('#f-err').textContent='Failed: '+e.message;endForge({state:'error'})}
+}
+async function stopForge(){
+  if(_forgeJob){try{await fetch('/api/stress/stop?id='+_forgeJob,{method:'POST'})}catch(e){}}
+  $('#f-stop').textContent='■ Stopping…';
+}
+function endForge(j){
+  if(_forgePoll){clearInterval(_forgePoll);_forgePoll=null}
+  $('#f-prog').classList.remove('show');
+  $('#f-run').style.display='inline-block';$('#f-stop').style.display='none';$('#f-stop').textContent='■ Stop';
+  if(j&&j.state==='error')$('#f-err').textContent='Failed: '+(j.error||'unknown');
+}
+function renderForge(j){
+  const pct=j.total?Math.round(100*j.progress/j.total):0;
+  $('#f-bar').style.width=pct+'%';
+  $('#f-pmsg').textContent=j.state==='running'?'streaming events through the pipeline…':j.state;
+  $('#f-pcount').textContent=`${j.progress}/${j.total} events`;
+  const s=j.summary;if(!s)return;
+  const recPct=Math.round((s.recall||0)*100),prePct=Math.round((s.precision||0)*100);
+  $('#f-kpis').innerHTML=`
+    <div class="kpi"><div class="k">Fed</div><div class="v a">${s.fed}</div></div>
+    <div class="kpi"><div class="k">Malicious caught</div><div class="v g">${s.tp}</div></div>
+    <div class="kpi"><div class="k">Malicious missed</div><div class="v ${s.fn?'r':'g'}">${s.fn}</div></div>
+    <div class="kpi"><div class="k">False alarms</div><div class="v ${s.fp?'w':'g'}">${s.fp}</div></div>
+    <div class="kpi"><div class="k">Recall</div><div class="v ${recPct>=50?'g':'r'}">${recPct}%</div></div>
+    <div class="kpi"><div class="k">Precision</div><div class="v">${prePct}%</div></div>`;
+  $('#f-callout').innerHTML=`Bundle has <b>${s.total_logs}</b> logs; feeding <b>${s.malicious}</b> malicious,
+    <b>${s.suspicious}</b> suspicious, <b>${s.benign}</b> benign sample. Caught <b>${s.tp}</b> of
+    <b>${s.malicious}</b> malicious (recall ${recPct}%) with <b>${s.fp}</b> false alarms. Missed events are
+    typically subtle multi-step campaign steps that need cross-log correlation (roadmap).`;
+  const rows=j.rows||[];
+  let h=`<tr><th>Source</th><th>Ground truth</th><th>MITRE</th><th>Our severity</th><th>Decided by</th><th>Result</th><th>Raw log</th></tr>`;
+  for(const r of [...rows].reverse().slice(0,60)){
+    const tcol=r.truth==='malicious'?'#f87171':r.truth==='benign_suspicious'?'#fbbf24':'#8b97ab';
+    const oc=r.outcome,ocCol=oc==='TP'?'#34d399':oc==='FN'?'#f87171':oc==='FP'?'#fbbf24':'#8b97ab';
+    h+=`<tr>
+      <td><span style="font-family:ui-monospace,monospace;font-size:10.5px">${esc(r.source)}</span></td>
+      <td><span style="color:${tcol};font-weight:600">${esc(r.truth)}</span></td>
+      <td style="font-size:10.5px">${esc(r.mitre||'—')}</td>
+      <td>${sev(r.severity)}</td>
+      <td style="font-size:10.5px;color:var(--mut)">${esc(r.decided_by)}</td>
+      <td><b style="color:${ocCol}">${esc(oc)}</b></td>
+      <td style="font-size:10px;color:var(--mut);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.raw)}</td>
+    </tr>`;
+  }
+  $('#f-table').innerHTML=h;
 }
 
 buildPipeline();loadSamples();loadHealth();

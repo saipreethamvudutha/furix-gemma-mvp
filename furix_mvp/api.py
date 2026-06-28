@@ -91,6 +91,12 @@ def stress_status(id: str) -> dict:
     return job
 
 
+@app.post("/api/stress/stop")
+def stress_stop(id: str) -> dict:
+    """Signal a running job to stop (used by the live forge feed's Stop button)."""
+    return {"stopped": stress.stop(id)}
+
+
 # ── Analysis ──────────────────────────────────────────────────────────────────
 @app.post("/api/analyze")
 def analyze(req: AnalyzeRequest) -> dict:

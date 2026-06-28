@@ -17,6 +17,10 @@
 #        read a CLI table. Same measurement logic as tools/loadtest*.py, exposed
 #        over HTTP as start()+get_job() with a shared in-memory job store.
 from __future__ import annotations
+import glob
+import json
+import os
+import re
 import threading
 import time
 import uuid
@@ -94,13 +98,29 @@ def _bump(jid: str, n: int = 1) -> None:
             _JOBS[jid]["progress"] += n
 
 
+def _cancelled(jid: str) -> bool:
+    with _LOCK:
+        j = _JOBS.get(jid)
+        return bool(j and j.get("cancel"))
+
+
+def stop(jid: str) -> bool:
+    """Signal a running job (e.g. the live forge feed) to stop after the current
+    event. The job loop checks _cancelled() each iteration."""
+    with _LOCK:
+        if jid in _JOBS:
+            _JOBS[jid]["cancel"] = True
+            return True
+    return False
+
+
 def start(scenario: str, params: dict) -> str:
     jid = uuid.uuid4().hex[:12]
     with _LOCK:
         _JOBS[jid] = {"id": jid, "scenario": scenario, "state": "running",
                       "progress": 0, "total": 0, "started": time.time(),
                       "params": params, "rows": [], "levels": [],
-                      "summary": None, "error": None}
+                      "summary": None, "error": None, "cancel": False}
     threading.Thread(target=_run, args=(jid, scenario, params), daemon=True).start()
     return jid
 
@@ -113,6 +133,8 @@ def _run(jid: str, scenario: str, params: dict) -> None:
             _gemma_ramp(jid, params)
         elif scenario == "ingest":
             _ingest(jid, params)
+        elif scenario == "forge":
+            _forge(jid, params)
         else:
             raise ValueError(f"unknown scenario '{scenario}'")
         _set(jid, state="done", ended=time.time())
@@ -340,3 +362,132 @@ def _gemma_ramp(jid: str, params: dict) -> None:
         "peak_p95_ms": best.get("p95_ms", 0),
         "saturation": saturation,
     })
+
+
+# ── Scenario 4 · LIVE FORGE FEED ──────────────────────────────────────────────
+# Stream a real logforge bundle (logs/*.jsonl + labels.jsonl) through the full
+# pipeline, one event at a time, and score each verdict against ground truth —
+# live, with a stop button. Answers "watch real attack data flow through and see
+# what we catch vs miss." Ground-truth join ported from tools/forge_feed.py.
+_GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+_HEX32 = re.compile(r"\b[0-9a-fA-F]{32}\b")
+_JSON_ID_KEYS = ("event_id", "eventID", "ReportId", "id", "auditID")
+
+
+def _norm_id(s: str) -> str:
+    return re.sub(r"[^0-9a-f]", "", s.lower())
+
+
+def _extract_event_id(line: str) -> str | None:
+    s = line.strip()
+    if s.startswith("{"):
+        try:
+            o = json.loads(s)
+            for k in _JSON_ID_KEYS:
+                if isinstance(o.get(k), str):
+                    return _norm_id(o[k])
+            evt = (o.get("output_fields") or {}).get("evt.id")
+            if isinstance(evt, str):
+                return _norm_id(evt)
+        except json.JSONDecodeError:
+            pass
+    m = _GUID.search(s) or _HEX32.search(s)
+    return _norm_id(m.group(0)) if m else None
+
+
+def _load_forge_logs(bundle: str) -> list[dict]:
+    out = []
+    for f in sorted(glob.glob(os.path.join(bundle, "logs", "*"))):
+        src = os.path.splitext(os.path.basename(f))[0]
+        with open(f, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.rstrip("\n")
+                if line.strip():
+                    out.append({"source": src, "raw": line, "event_id": _extract_event_id(line)})
+    return out
+
+
+def _load_forge_labels(bundle: str) -> dict:
+    labels = {}
+    p = os.path.join(bundle, "labels.jsonl")
+    if os.path.exists(p):
+        with open(p, encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                    labels[_norm_id(o["event_id"])] = o
+                except (json.JSONDecodeError, KeyError):
+                    pass
+    return labels
+
+
+def _forge(jid: str, params: dict) -> None:
+    bundle = str(params.get("bundle", "")).strip()
+    limit = max(1, min(int(params.get("limit", 80)), 2000))
+    delay_ms = max(0, min(int(params.get("delay_ms", 120)), 3000))
+    if not bundle or not os.path.isdir(bundle):
+        raise ValueError(f"bundle directory not found on server: {bundle!r}")
+
+    logs = _load_forge_logs(bundle)
+    labels = _load_forge_labels(bundle)
+    if not logs:
+        raise ValueError(f"no log files found under {bundle}/logs/")
+
+    def _label(l):
+        return labels.get(l["event_id"] or "", {}).get("label", "unlabeled")
+
+    def _tech(l):
+        return labels.get(l["event_id"] or "", {}).get("mitre_technique", "")
+
+    # Keep ALL malicious + suspicious (rare, the point), plus a capped benign sample.
+    mal = [l for l in logs if _label(l) == "malicious"]
+    sus = [l for l in logs if _label(l) == "benign_suspicious"]
+    ben = [l for l in logs if _label(l) == "benign"][:limit]
+    feed = mal + sus + ben
+    _set(jid, total=len(feed))
+
+    tp = fn = fp = tn = sus_alert = 0
+    rows = []
+    for l in feed:
+        if _cancelled(jid):
+            break
+        rec = brain.analyze(l["raw"])
+        v = rec.get("verdict", {})
+        sev = v.get("severity")
+        alerted = sev in ("critical", "high") or bool(v.get("is_anomaly"))
+        truth = _label(l)
+        if truth == "malicious":
+            if alerted:
+                tp += 1; outcome = "TP"
+            else:
+                fn += 1; outcome = "FN"
+        elif truth == "benign":
+            if alerted:
+                fp += 1; outcome = "FP"
+            else:
+                tn += 1; outcome = "TN"
+        elif truth == "benign_suspicious":
+            sus_alert += 1 if alerted else 0
+            outcome = "SUS-alert" if alerted else "SUS-quiet"
+        else:
+            outcome = "—"
+        rows.append({
+            "source": l["source"], "truth": truth, "mitre": _tech(l),
+            "severity": sev, "decided_by": v.get("decision_engine", "—"),
+            "alerted": alerted, "outcome": outcome, "raw": l["raw"][:180],
+        })
+        prec = tp / (tp + fp) if (tp + fp) else 0.0
+        recall = tp / (tp + fn) if (tp + fn) else 0.0
+        with _LOCK:
+            if jid in _JOBS:
+                _JOBS[jid]["rows"] = rows[-150:]      # keep the most recent for display
+                _JOBS[jid]["summary"] = {
+                    "bundle": bundle, "fed": len(rows),
+                    "malicious": len(mal), "suspicious": len(sus), "benign": min(len(ben), limit),
+                    "tp": tp, "fn": fn, "fp": fp, "tn": tn, "sus_alert": sus_alert,
+                    "precision": round(prec, 2), "recall": round(recall, 2),
+                    "total_logs": len(logs),
+                }
+        _bump(jid)
+        if delay_ms:
+            time.sleep(delay_ms / 1000.0)
