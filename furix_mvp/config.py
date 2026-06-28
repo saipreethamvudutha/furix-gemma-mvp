@@ -60,6 +60,12 @@ DETERMINISTIC_SCORING = _bool("DETERMINISTIC_SCORING", "1")
 # the caller explicitly requests them (analyst click). Everything below just gets
 # the deterministic verdict + mapping. Set to "informational" to always run them.
 NARRATIVE_MIN_SEVERITY = os.environ.get("NARRATIVE_MIN_SEVERITY", "high").strip().lower()
+# Narrative reports (remediation + report) are the EXPENSIVE generative Gemma
+# calls. By default they run ON-DEMAND ONLY (analyst clicks "generate report"),
+# so routine detection stays fully deterministic and LLM-call frequency stays
+# low — this is what lets the deterministic engines resolve the majority of
+# events. Set NARRATIVE_AUTO=1 to auto-run them for events >= NARRATIVE_MIN_SEVERITY.
+NARRATIVE_AUTO = _bool("NARRATIVE_AUTO", "0")
 _SEV_ORDER = ["informational", "low", "medium", "high", "critical"]
 
 

@@ -26,6 +26,8 @@ from . import agents, brain
 from .samples import SAMPLE_LOGS
 from .dal import DAL
 from .containers import c6_normaliser as c6
+from .containers.c6_normaliser import KW as _KW
+from .containers.c8_storage_detect import RULES as _DETECTION_RULES
 
 # ── Job store (in-memory; one appliance process) ──────────────────────────────
 _JOBS: dict[str, dict] = {}
@@ -115,10 +117,24 @@ def _run(jid: str, scenario: str, params: dict) -> None:
         _set(jid, state="error", error=str(e), ended=time.time())
 
 
-# ── Scenario 1 · ROUTING (deterministic vs Gemma, per log) ────────────────────
+# A few synthetic NOVEL events: each trips a real risk signal (lateral movement
+# via psexec/netbios) that maps to NO control and NO detection rule and NO known
+# CVE — so the deterministic tiers can't resolve them and they correctly escalate
+# to the LLM. They make the "model is for the novel" path visible in the demo.
+_NOVEL_PROBES = [
+    ("novel · psexec lateral move",
+     "alert: WORKSTATION-22 lateral movement detected via psexec to internal host 10.2.7.40 — previously-unseen pattern"),
+    ("novel · netbios anomaly",
+     "warning: anomalous netbios session from 10.2.3.9 to fileserver fin-db-07, behaviour not seen before"),
+]
+
+
+# ── Scenario 1 · ROUTING (which tier decided each event) ──────────────────────
 def _routing(jid: str, params: dict) -> None:
-    concurrency = max(1, min(int(params.get("concurrency", 3)), MAX_CONCURRENCY))
-    items = list(SAMPLE_LOGS.items())          # (name, raw)
+    # Sequential by default so any escalated LLM calls are timed honestly (no
+    # queue contention inflating per-log timings).
+    concurrency = max(1, min(int(params.get("concurrency", 1)), MAX_CONCURRENCY))
+    items = list(SAMPLE_LOGS.items()) + list(_NOVEL_PROBES)   # (name, raw)
     _set(jid, total=len(items))
 
     def _one(name_raw):
@@ -127,27 +143,21 @@ def _routing(jid: str, params: dict) -> None:
         rec = brain.analyze(raw)
         total_ms = round((time.perf_counter() - t) * 1000.0, 1)
         v = rec.get("verdict", {})
-        comp = rec.get("compliance", {})
         ags = rec.get("agents", [])
         gemma = [a for a in ags if a.get("source") in ("llm", "mock")]
-        det = [a for a in ags if a.get("source") == "deterministic"]
         gemma_ms = sum(int(a.get("latency_ms") or 0) for a in gemma)
+        deterministic = bool(v.get("deterministic", True))
         return {
             "sample": name,
             "log_type": rec.get("log_type"),
             "severity": v.get("severity"),
-            "risk_score": v.get("risk_score"),
-            "is_anomaly": v.get("is_anomaly"),
-            "primary_tier": comp.get("primary_tier"),
-            "compliance_llm": bool(comp.get("llm_used")),
-            "gemma_agents": [a.get("agent") for a in gemma],
-            "deterministic_agents": [a.get("agent") for a in det],
+            "decided_by": v.get("decided_by", "deterministic"),
+            "decision_engine": v.get("decision_engine", "—"),
+            "decision_detail": v.get("decision_detail", ""),
+            "deterministic": deterministic,
             "gemma_calls": len(gemma),
             "gemma_ms": gemma_ms,
-            "deterministic_ms": max(0, round(total_ms - gemma_ms, 1)),
             "total_ms": total_ms,
-            "cache_hit": bool(rec.get("cache_hit")),
-            "route": "Gemma LLM" if gemma else "Deterministic (no model)",
         }
 
     rows = []
@@ -162,21 +172,34 @@ def _routing(jid: str, params: dict) -> None:
             with _LOCK:
                 _JOBS[jid]["rows"] = list(rows)
 
-    rows.sort(key=lambda r: r["total_ms"], reverse=True)
+    # Order: deterministic first (fast), escalated LLM rows last.
+    rows.sort(key=lambda r: (not r["deterministic"], r["total_ms"]))
     n = len(rows) or 1
-    det_only = [r for r in rows if r["gemma_calls"] == 0]
-    gemma_any = [r for r in rows if r["gemma_calls"] > 0]
+    det = [r for r in rows if r["deterministic"]]
+    llm = [r for r in rows if not r["deterministic"]]
     total_gemma_calls = sum(r["gemma_calls"] for r in rows)
     total_gemma_ms = sum(r["gemma_ms"] for r in rows)
+
+    # Count how each engine decided things (the deterministic-coverage breakdown).
+    by_engine: dict[str, int] = {}
+    for r in rows:
+        by_engine[r["decision_engine"]] = by_engine.get(r["decision_engine"], 0) + 1
+
     _set(jid, rows=rows, summary={
         "logs": n,
-        "deterministic_only": len(det_only),
-        "hit_gemma": len(gemma_any),
-        "deterministic_pct": round(100 * len(det_only) / n, 1),
+        "deterministic_only": len(det),
+        "hit_gemma": len(llm),
+        "deterministic_pct": round(100 * len(det) / n, 1),
         "total_gemma_calls": total_gemma_calls,
         "total_gemma_ms": total_gemma_ms,
-        "avg_gemma_ms": round(total_gemma_ms / max(1, total_gemma_calls), 0),
-        "compliance_llm_rate": round(100 * sum(1 for r in rows if r["compliance_llm"]) / n, 1),
+        "avg_gemma_ms": round(total_gemma_ms / max(1, total_gemma_calls), 0) if total_gemma_calls else 0,
+        "by_engine": by_engine,
+        # The deterministic engines available, for the coverage panel.
+        "engines": {
+            "siem_rules": len(_DETECTION_RULES),
+            "cve_catalog": len(brain._KNOWN_CVES),
+            "compliance_keywords": len(_KW),
+        },
     })
 
 

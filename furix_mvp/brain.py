@@ -25,6 +25,63 @@ from .dal import DAL
 from .containers import c6_normaliser as c6      # deterministic triage (no LLM)
 from .containers import c13_valkey as cache       # verdict cache
 from .containers import c12_operations as ops
+from .containers.c4_intel_sync import _FEED as _INTEL_FEED
+from .containers.c3_scan_engine import _CATALOG as _SCAN_CATALOG
+
+# Every CVE the appliance recognises deterministically: the KEV intel feed (C4)
+# + the scan engine's vulnerability catalog (C3). A finding referencing one of
+# these is decided by the scan/intel tier — no model needed.
+_KNOWN_CVES = ({c.upper() for c in _INTEL_FEED.get("cve_kev", set())}
+               | {row[1].upper() for row in _SCAN_CATALOG})
+
+
+def _siem_rule(sig: dict, ioc_hits: list) -> str | None:
+    """Mirror of the C8 detection rules — which deterministic SIEM rule fires?"""
+    if sig.get("malware"):
+        return "malware_execution"
+    if sig.get("c2_or_exfil") or ioc_hits:
+        return "c2_or_exfil_or_ioc"
+    if sig.get("failed_logins") and sig.get("successful_logins"):
+        return "brute_force_success"
+    if sig.get("privilege_escalation"):
+        return "privilege_escalation"
+    if sig.get("account_creation"):
+        return "unauthorized_account"
+    return None
+
+
+def _classify_decision(raw_finding: dict, comp_map: dict) -> dict:
+    """Which TIER decided this event — and was the model needed at all?
+
+    Order = most authoritative / cheapest first. The LLM is reached ONLY when no
+    deterministic engine (scan CVE catalog, SIEM detection rule, compliance
+    crosswalk) can resolve the event — i.e. it is genuinely novel.
+    """
+    ent = raw_finding.get("entities", {})
+    sig = raw_finding.get("signals", {})
+    ioc_hits = raw_finding.get("intel", {}).get("ioc_hits", [])
+    cves = [c.upper() for c in ent.get("cve_ids", [])]
+
+    known_cve = next((c for c in cves if c in _KNOWN_CVES), None)
+    if known_cve:
+        return {"by": "scan_engine", "engine": "Scan Engine · CVE catalog",
+                "detail": f"known exploited CVE {known_cve}", "deterministic": True}
+
+    rule = _siem_rule(sig, ioc_hits)
+    if rule:
+        return {"by": "siem_rule", "engine": "SIEM · detection rule",
+                "detail": rule, "deterministic": True}
+
+    if comp_map.get("control_ids") and not comp_map.get("needs_llm"):
+        return {"by": "compliance_rule", "engine": "Compliance · rule + crosswalk",
+                "detail": "mapped by control keyword / crosswalk", "deterministic": True}
+
+    if comp_map.get("needs_llm"):
+        return {"by": "llm", "engine": "AI Brain · Gemma (escalated)",
+                "detail": "novel event — no rule, CVE, or control matched", "deterministic": False}
+
+    return {"by": "deterministic", "engine": "Normaliser · no risk signal",
+            "detail": "benign — no detection signal fired", "deterministic": True}
 
 
 def _finding_id(raw: str) -> str:
@@ -108,7 +165,10 @@ def _run_agents(finding: dict, ground: dict, enabled: list[str],
     # only for serious events (or explicit request) — everything else gets the
     # deterministic verdict + mapping and can generate narrative later on click.
     severity = outputs.get("risk_scorer", {}).get("severity", "medium")
-    run_narrative = explicit or config.severity_meets(severity)
+    # Narrative is ON-DEMAND by default: it runs only when the caller explicitly
+    # asks (analyst clicks "generate report"), or when NARRATIVE_AUTO is enabled.
+    # This keeps routine detection fully deterministic — zero Gemma calls.
+    run_narrative = explicit or (config.NARRATIVE_AUTO and config.severity_meets(severity))
 
     if "remediation_generator" in enabled:
         if run_narrative:
@@ -192,6 +252,9 @@ def analyze(raw_log: str, log_type: str = "auto",
     risk = outputs.get("risk_scorer", {})
     anom = outputs.get("anomaly_detector", {})
     controls = comp_map.get("control_ids", [])
+    # Which tier actually decided this event (scan CVE / SIEM rule / compliance /
+    # novel→LLM)? Classify on the RAW finding so we still see real CVEs/signals.
+    decision = _classify_decision(raw_finding, comp_map)
     verdict = {
         "severity": risk.get("severity", "medium"),
         "risk_score": int(risk.get("risk_score", 0) or 0),
@@ -201,6 +264,11 @@ def analyze(raw_log: str, log_type: str = "auto",
         "hipaa_sections": comp_map.get("hipaa_sections", []),
         "is_anomaly": bool(anom.get("is_anomaly", False)),
         "summary": finding.get("summary", ""),
+        # Decision provenance: was the model needed, and which engine decided?
+        "decided_by": decision["by"],
+        "decision_engine": decision["engine"],
+        "decision_detail": decision["detail"],
+        "deterministic": decision["deterministic"],
     }
     cache.put_verdict(finding, verdict)   # warm the cache for the next identical event
 

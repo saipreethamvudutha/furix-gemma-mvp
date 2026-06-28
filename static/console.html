@@ -158,8 +158,11 @@
         <div class="card" id="v-card">
           <h2>Final Verdict</h2>
           <div class="v-grid" id="v-grid"></div>
+          <div id="v-decision" style="margin-top:10px"></div>
           <div class="controls-section" id="v-controls"></div>
           <div class="wall" id="v-wall"></div>
+          <button class="primary" id="report-btn" onclick="generateReport()" style="display:none;background:#7c3aed">⚡ Generate AI Report (on-demand Gemma)</button>
+          <div id="report-out" style="margin-top:10px"></div>
         </div>
       </div>
       <div>
@@ -175,18 +178,18 @@
   <div id="view-routing" class="hide">
     <div class="card">
       <h2>Routing &amp; Cost — deterministic rules vs Gemma, per log</h2>
-      <p class="lead">Runs every sample log through the full appliance and shows, for each one,
-        <b>which tier decided it</b>. Most events are resolved by instant deterministic rules
-        (regex + crosswalk + embeddings) — <b>0&nbsp;ms, no model</b>. Only events that genuinely need
-        reasoning (or that no rule can map) fall through to a <b>Gemma LLM call</b>, with its real
-        response time shown. The cost story: the model is the rare last resort, not the default.</p>
+      <p class="lead">Runs every event through the full appliance and shows <b>which engine decided it</b>.
+        The deterministic engines — the <b>scan-engine CVE catalog</b>, the <b>SIEM detection rules</b>, and the
+        <b>compliance crosswalk</b> — resolve known events in <b>0&nbsp;ms, with no model call</b>. Only genuinely
+        <b>novel</b> events (no rule, no known CVE, no control match) escalate to Gemma. A couple of synthetic
+        novel events are included so you can see that escalation path. The full AI write-up (remediation + report)
+        is <b>on-demand only</b> — it never runs automatically.</p>
       <div class="controls-row">
-        <div class="ctl"><label>Concurrency</label><input type="number" id="r-conc" value="3" min="1" max="16"></div>
+        <div class="ctl"><label>Concurrency</label><input type="number" id="r-conc" value="1" min="1" max="16"></div>
         <button class="run" id="r-run" onclick="runRouting()">▶ Run routing benchmark</button>
       </div>
-      <p class="note">⏱ First Gemma call may be slow (model cold-load). High-severity logs trigger the
-        narrative agents (Remediation/Report) which call Gemma — those rows take longer; low-severity
-        logs stay fully deterministic at ~0&nbsp;ms.</p>
+      <p class="note">⏱ Known events resolve instantly with no model. The novel events make one real Gemma call each
+        (~40–60s on this box) — run sequentially (concurrency 1) so their timing is honest.</p>
       <div class="progress" id="r-prog"><div class="bar"><i id="r-bar"></i></div>
         <div class="pmeta"><span id="r-pmsg">starting…</span><span id="r-pcount"></span></div></div>
       <div class="err" id="r-err"></div>
@@ -362,7 +365,7 @@ async function runDemo(){
       else if(name==='remediation_generator')av=esc((a.output.executive_summary||a.output.summary||'').slice(0,70));
       else if(name==='report_generator')av=esc((a.output.executive_summary||'').slice(0,70));
     }else if(isDetCompliance){meta='<span style="color:var(--info)">instant · rules</span>';av=chips(detMapped.slice(0,4))}
-    if(isSkip){av='<span style="color:var(--mut);font-size:10px">deferred (severity gate)</span>';meta='—'}
+    if(isSkip){av='<span style="color:var(--mut);font-size:10px">on-demand — click "Generate AI Report"</span>';meta='—'}
     agHTML+=`<div class="ag ${cls}"><span class="an">${AGENT_NAMES[name]}</span><span class="at">${meta}</span><div class="av">${av}</div></div>`;
   }
   agHTML+='</div>';fill('s5',agHTML);
@@ -387,8 +390,45 @@ async function runDemo(){
   const gemmaAgents=agArr.filter(a=>a.source==='llm');
   const gemmaMs=gemmaAgents.reduce((s,a)=>s+(a.latency_ms||0),0);
   $('#v-wall').textContent=`Pipeline total: ${result.total_latency_ms}ms · Gemma: ${gemmaMs}ms across ${gemmaAgents.length} call(s) · deterministic tiers: instant · cache: ${result.cache_hit?'HIT':'miss'}`;
+  // Which tier decided this event — and the on-demand report button.
+  const detr=v.deterministic!==false;
+  $('#v-decision').innerHTML=`<span class="controls-label">Decided by</span>
+    <span class="pill ${detr?'route-det':'route-llm'}">${esc(v.decision_engine||'—')}</span>
+    <span style="color:var(--mut);font-size:11px"> ${esc(v.decision_detail||'')}</span>`;
+  window._lastRaw=raw;
+  $('#report-out').innerHTML='';
+  const rb=$('#report-btn');
+  rb.style.display='block';rb.disabled=false;rb.textContent='⚡ Generate AI Report (on-demand Gemma)';
   $('#v-card').style.display='block';
   btn.disabled=false;btn.textContent='▶ Run Again';
+}
+
+// On-demand narrative: the ONLY way the heavy Remediation+Report Gemma calls run.
+// This is what keeps routine detection deterministic — the analyst opts in here.
+async function generateReport(){
+  const raw=window._lastRaw;if(!raw)return;
+  const rb=$('#report-btn');rb.disabled=true;rb.textContent='⏳ Generating report via Gemma…';
+  $('#report-out').innerHTML='<span style="color:var(--mut)">Calling Gemma for remediation + report — this is the on-demand LLM path…</span>';
+  try{
+    const t0=performance.now();
+    const resp=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({raw_log:raw,agents:['risk_scorer','compliance_mapper','anomaly_detector','remediation_generator','report_generator']})});
+    if(!resp.ok)throw new Error('HTTP '+resp.status);
+    const r=await resp.json();const ms=Math.round(performance.now()-t0);
+    const ag={};(r.agents||[]).forEach(a=>ag[a.agent]=a);
+    const rep=(ag.report_generator&&ag.report_generator.output)||{};
+    const rem=(ag.remediation_generator&&ag.remediation_generator.output)||{};
+    const llm=(r.agents||[]).filter(a=>a.source==='llm');
+    const gms=llm.reduce((s,a)=>s+(a.latency_ms||0),0);
+    let html='<div class="callout" style="background:#241a3a;border-color:#7c3aed">';
+    if(rep.executive_summary)html+=`<b>Executive summary:</b> ${esc(rep.executive_summary)}<br>`;
+    if(rep.attack_narrative)html+=`<br><b>Attack narrative:</b> ${esc(rep.attack_narrative)}<br>`;
+    if(rem.steps&&rem.steps.length)html+=`<br><b>Remediation step 1:</b> ${esc(rem.steps[0].action||'')}`;
+    if(!rep.executive_summary&&!rem.steps)html+='<span style="color:var(--mut)">Model returned no narrative (timeout/fallback).</span>';
+    html+=`<div style="color:var(--mut);font-size:11px;margin-top:8px">Generated by Gemma in ${gms}ms across ${llm.length} model call(s) · wall ${ms}ms</div></div>`;
+    $('#report-out').innerHTML=html;
+  }catch(e){$('#report-out').innerHTML=`<span style="color:var(--crit)">Report failed: ${esc(e.message)}</span>`}
+  finally{rb.disabled=false;rb.textContent='⚡ Regenerate AI Report';}
 }
 
 /* ════════════ STRESS (shared poll) ════════════ */
@@ -413,7 +453,7 @@ async function runRouting(){
   const btn=$('#r-run');btn.disabled=true;btn.textContent='⏳ Running…';
   $('#r-err').textContent='';$('#r-results').classList.add('hide');
   $('#r-prog').classList.add('show');$('#r-bar').style.width='0%';
-  const conc=Math.max(1,Math.min(16,parseInt($('#r-conc').value)||3));
+  const conc=Math.max(1,Math.min(16,parseInt($('#r-conc').value)||1));
   try{const j=await startJob('routing',{concurrency:conc},tickRouting);renderRouting(j)}
   catch(e){$('#r-err').textContent='Failed: '+e.message}
   finally{btn.disabled=false;btn.textContent='▶ Run routing benchmark';$('#r-prog').classList.remove('show')}
@@ -431,27 +471,33 @@ function renderRouting(j,partial){
   const s=j.summary;
   if(s){
     $('#r-kpis').innerHTML=`
-      <div class="kpi"><div class="k">Logs analyzed</div><div class="v a">${s.logs}</div></div>
-      <div class="kpi"><div class="k">Fully deterministic</div><div class="v g">${s.deterministic_only}</div></div>
-      <div class="kpi"><div class="k">Hit Gemma</div><div class="v p">${s.hit_gemma}</div></div>
-      <div class="kpi"><div class="k">% no model</div><div class="v g">${s.deterministic_pct}%</div></div>
+      <div class="kpi"><div class="k">Events analyzed</div><div class="v a">${s.logs}</div></div>
+      <div class="kpi"><div class="k">Solved with no model</div><div class="v g">${s.deterministic_only}</div></div>
+      <div class="kpi"><div class="k">Escalated to Gemma</div><div class="v p">${s.hit_gemma}</div></div>
+      <div class="kpi"><div class="k">% deterministic</div><div class="v g">${s.deterministic_pct}%</div></div>
       <div class="kpi"><div class="k">Total Gemma calls</div><div class="v p">${s.total_gemma_calls}</div></div>
       <div class="kpi"><div class="k">Avg Gemma call</div><div class="v w">${s.avg_gemma_ms}ms</div></div>`;
-    $('#r-callout').innerHTML=`<b>${s.deterministic_pct}%</b> of logs were fully resolved by instant
-      deterministic rules (0&nbsp;ms, no model). Only <b>${s.hit_gemma}</b> needed Gemma, across
-      <b>${s.total_gemma_calls}</b> calls. Compliance mapping reached the LLM only
-      <b>${s.compliance_llm_rate}%</b> of the time — everything else was crosswalk/embeddings.`;
+    const eng=s.engines||{};
+    const byEng=Object.entries(s.by_engine||{}).map(([k,v])=>`${esc(k)} → <b>${v}</b>`).join(' &nbsp;·&nbsp; ');
+    $('#r-callout').innerHTML=`<b>${s.deterministic_pct}%</b> of events were resolved by the deterministic
+      engines — <b>0&nbsp;ms, no model</b>. Only <b>${s.hit_gemma}</b> genuinely novel event(s) escalated to Gemma.
+      <div style="color:var(--mut);font-size:11.5px;margin-top:6px">Decided by: ${byEng||'—'}</div>
+      <div style="color:var(--mut);font-size:11.5px;margin-top:4px">Deterministic engines active:
+      <b>${eng.siem_rules||0}</b> SIEM detection rules · <b>${eng.cve_catalog||0}</b> known CVEs in the scan catalog ·
+      <b>${eng.compliance_keywords||0}</b> compliance keyword rules.</div>`;
   }
-  let h=`<tr><th>Sample log</th><th>Type</th><th>Severity</th><th>Route</th>
-    <th class="num">Deterministic</th><th class="num">Gemma calls</th><th class="num">Gemma ms</th><th class="num">Total ms</th></tr>`;
+  let h=`<tr><th>Event</th><th>Type</th><th>Severity</th><th>Decided by</th>
+    <th class="num">Gemma calls</th><th class="num">Gemma ms</th><th class="num">Total ms</th></tr>`;
   for(const r of rows){
-    const det=r.gemma_calls===0;
+    const det=r.deterministic;
     h+=`<tr><td>${esc(r.sample)}</td>
       <td><span style="font-family:ui-monospace,monospace;font-size:11px">${esc(r.log_type)}</span></td>
       <td>${sev(r.severity)}</td>
-      <td><span class="pill ${det?'route-det':'route-llm'}">${det?'Deterministic · no model':'Gemma LLM'}</span></td>
-      <td class="num">${r.deterministic_ms}ms</td><td class="num">${r.gemma_calls||'—'}</td>
-      <td class="num">${r.gemma_ms?r.gemma_ms+'ms':'—'}</td><td class="num"><b>${r.total_ms}ms</b></td></tr>`;
+      <td><span class="pill ${det?'route-det':'route-llm'}">${esc(r.decision_engine)}</span>
+        <div style="color:var(--mut);font-size:10px;margin-top:2px">${esc(r.decision_detail||'')}</div></td>
+      <td class="num">${r.gemma_calls||'—'}</td>
+      <td class="num">${r.gemma_ms?r.gemma_ms+'ms':'—'}</td>
+      <td class="num"><b>${r.total_ms}ms</b></td></tr>`;
   }
   $('#r-table').innerHTML=h;
 }
