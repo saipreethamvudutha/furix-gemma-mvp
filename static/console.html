@@ -303,7 +303,9 @@
       <h2>Live detection scorecard — verdicts vs ground truth</h2>
       <div class="cards" id="f-kpis"></div>
       <div class="callout" id="f-callout"></div>
+      <div style="font-size:11.5px;color:var(--mut);margin-top:10px">Tip: click <b>🤖 Ask Gemma</b> on any malicious/suspicious row to send that exact log to the model and compare its verdict to the ground truth.</div>
       <table id="f-table"></table>
+      <div id="f-assess" style="display:none;margin-top:14px"></div>
     </div>
   </div>
 </div>
@@ -734,10 +736,14 @@ function renderForge(j){
     <b>${s.malicious}</b> malicious (recall ${recPct}%) with <b>${s.fp}</b> false alarms. Missed events are
     typically subtle multi-step campaign steps that need cross-log correlation (roadmap).`;
   const rows=j.rows||[];
-  let h=`<tr><th>Source</th><th>Ground truth</th><th>MITRE</th><th>Our severity</th><th>Decided by</th><th>Result</th><th>Raw log</th></tr>`;
-  for(const r of [...rows].reverse().slice(0,60)){
+  const disp=[...rows].reverse().slice(0,60);
+  window._forgeDisp=disp;
+  let h=`<tr><th>Source</th><th>Ground truth</th><th>MITRE</th><th>Our severity</th><th>Decided by</th><th>Result</th><th>Raw log</th><th></th></tr>`;
+  disp.forEach((r,i)=>{
     const tcol=r.truth==='malicious'?'#f87171':r.truth==='benign_suspicious'?'#fbbf24':'#8b97ab';
     const oc=r.outcome,ocCol=oc==='TP'?'#34d399':oc==='FN'?'#f87171':oc==='FP'?'#fbbf24':'#8b97ab';
+    const ask=(r.truth==='malicious'||r.truth==='benign_suspicious')
+      ?`<button onclick="assessForge(${i})" style="cursor:pointer;background:#241a3a;color:#a78bfa;border:1px solid #7c3aed;border-radius:6px;padding:3px 8px;font-size:10.5px;white-space:nowrap">🤖 Ask Gemma</button>`:'';
     h+=`<tr>
       <td><span style="font-family:ui-monospace,monospace;font-size:10.5px">${esc(r.source)}</span></td>
       <td><span style="color:${tcol};font-weight:600">${esc(r.truth)}</span></td>
@@ -745,10 +751,35 @@ function renderForge(j){
       <td>${sev(r.severity)}</td>
       <td style="font-size:10.5px;color:var(--mut)">${esc(r.decided_by)}</td>
       <td><b style="color:${ocCol}">${esc(oc)}</b></td>
-      <td style="font-size:10px;color:var(--mut);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.raw)}</td>
+      <td style="font-size:10px;color:var(--mut);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.raw)}</td>
+      <td>${ask}</td>
     </tr>`;
-  }
+  });
   $('#f-table').innerHTML=h;
+}
+
+async function assessForge(i){
+  const row=(window._forgeDisp||[])[i];if(!row)return;
+  const panel=$('#f-assess');panel.style.display='block';
+  panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+  panel.innerHTML=`<div class="callout" style="background:#241a3a;border-color:#7c3aed">🤖 Asking Gemma to assess this <b>${esc(row.truth)}</b> event directly… (~40–60s on this box)</div>`;
+  try{
+    const r=await(await fetch('/api/llm-assess',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({raw_log:row.raw})})).json();
+    if(!r.verdict){panel.innerHTML=`<div class="callout warn">Gemma returned no verdict — ${esc(r.error||'fallback')} (source: ${esc(r.source||'—')}).</div>`;return}
+    const caught=(r.verdict==='malicious')||(row.truth==='benign_suspicious'&&r.verdict!=='benign');
+    panel.innerHTML=`<div class="callout" style="background:#241a3a;border-color:#7c3aed">
+      <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center">
+        <div><span style="color:var(--mut);font-size:11px">GROUND TRUTH</span><br><b style="color:#f87171">${esc(row.truth)}</b>${row.mitre?' · '+esc(row.mitre):''}</div>
+        <div style="font-size:18px;color:var(--mut)">→</div>
+        <div><span style="color:var(--mut);font-size:11px">GEMMA'S VERDICT</span><br><b style="color:#a78bfa">${esc(r.verdict)}</b> · ${sev(r.severity)}</div>
+        <div style="margin-left:auto"><span class="pill ${caught?'route-det':'route-llm'}">${caught?'✓ Gemma caught it':'✗ Gemma also missed it'}</span></div>
+      </div>
+      <div style="margin-top:10px"><b>Gemma's reasoning:</b> ${esc(r.reasoning||'—')}</div>
+      <div style="color:var(--mut);font-size:11px;margin-top:8px">Real model call · ${r.latency_ms}ms · source ${esc(r.source||'—')}</div>
+      <details style="margin-top:8px"><summary style="cursor:pointer;color:var(--acc);font-size:11.5px">▸ Show the exact log sent to Gemma</summary>
+        <pre style="white-space:pre-wrap;word-break:break-word;background:#0b0f17;border:1px solid var(--line);border-radius:6px;padding:8px;max-height:200px;overflow:auto;font-size:10.5px;color:#cbd5e1">${esc(row.raw)}</pre></details>
+    </div>`;
+  }catch(e){panel.innerHTML=`<div class="callout warn">Failed: ${esc(e.message)}</div>`}
 }
 
 buildPipeline();loadSamples();loadHealth();

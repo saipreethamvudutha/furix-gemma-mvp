@@ -97,6 +97,30 @@ def stress_stop(id: str) -> dict:
     return {"stopped": stress.stop(id)}
 
 
+class AssessRequest(BaseModel):
+    raw_log: str
+
+
+@app.post("/api/llm-assess")
+def llm_assess(req: AssessRequest) -> dict:
+    """Ask Gemma directly to judge ONE raw log line — the 'send it to the model and
+    see what it thinks' path. Used by the LogForge feed to compare the model's
+    verdict against ground truth on events the deterministic tiers handled."""
+    sys_p = ("You are a senior SOC analyst. Given ONE raw security log line, decide whether it "
+             "indicates malicious or suspicious activity. Weigh the source, actor, geography, IP "
+             "reputation, and action. Output ONE JSON object only: "
+             '{"verdict":"malicious|suspicious|benign","severity":'
+             '"critical|high|medium|low|informational","reasoning":"1-2 sentences"}.')
+    r = llm.complete_json(sys_p, (req.raw_log or "")[:4000], max_tokens=300)
+    return {
+        "verdict": r.get("verdict"), "severity": r.get("severity"),
+        "reasoning": r.get("reasoning"),
+        "source": r.source, "latency_ms": r.latency_ms, "error": r.error,
+        "prompt": f"=== SYSTEM ===\n{getattr(r, 'system', '')}\n\n=== USER ===\n{getattr(r, 'user', '')}",
+        "raw": getattr(r, "raw", ""),
+    }
+
+
 # ── Analysis ──────────────────────────────────────────────────────────────────
 @app.post("/api/analyze")
 def analyze(req: AnalyzeRequest) -> dict:

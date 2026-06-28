@@ -474,7 +474,7 @@ def _forge(jid: str, params: dict) -> None:
         rows.append({
             "source": l["source"], "truth": truth, "mitre": _tech(l),
             "severity": sev, "decided_by": v.get("decision_engine", "—"),
-            "alerted": alerted, "outcome": outcome, "raw": l["raw"][:180],
+            "alerted": alerted, "outcome": outcome, "raw": l["raw"][:1500],
         })
         prec = tp / (tp + fp) if (tp + fp) else 0.0
         recall = tp / (tp + fn) if (tp + fn) else 0.0
