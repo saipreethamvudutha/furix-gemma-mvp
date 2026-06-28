@@ -26,6 +26,7 @@ from . import agents, brain
 from .samples import SAMPLE_LOGS
 from .dal import DAL
 from .containers import c6_normaliser as c6
+from .containers import c13_valkey as _c13
 from .containers.c6_normaliser import KW as _KW
 from .containers.c8_storage_detect import RULES as _DETECTION_RULES
 
@@ -110,6 +111,8 @@ def _run(jid: str, scenario: str, params: dict) -> None:
             _routing(jid, params)
         elif scenario == "gemma_ramp":
             _gemma_ramp(jid, params)
+        elif scenario == "ingest":
+            _ingest(jid, params)
         else:
             raise ValueError(f"unknown scenario '{scenario}'")
         _set(jid, state="done", ended=time.time())
@@ -200,6 +203,77 @@ def _routing(jid: str, params: dict) -> None:
             "cve_catalog": len(brain._KNOWN_CVES),
             "compliance_keywords": len(_KW),
         },
+    })
+
+
+# ── Scenario 3 · INGESTION THROUGHPUT ─────────────────────────────────────────
+# How many logs can ONE process ingest + fully resolve per second? Pushes N events
+# through the complete brain.analyze pipeline at a chosen concurrency and reports
+# events/sec, latency percentiles, the deterministic-vs-LLM split, and the engine
+# breakdown. Worst-case by default (verdict cache disabled, every event unique) so
+# the number reflects real compute, not cache wins.
+INGEST_MAX_EVENTS = 5000
+
+
+def _ingest(jid: str, params: dict) -> None:
+    n = max(1, min(int(params.get("events", 1000)), INGEST_MAX_EVENTS))
+    concurrency = max(1, min(int(params.get("concurrency", 8)), MAX_CONCURRENCY))
+    worst_case = bool(params.get("worst_case", True))
+    corpus = list(SAMPLE_LOGS.values()) or ["benign event"]
+    _set(jid, total=n)
+
+    lat: list[float] = []
+    gemma_calls = 0
+    errors = 0
+    deterministic = 0
+    by_engine: dict[str, int] = {}
+
+    def _one(i):
+        raw = corpus[i % len(corpus)] + f"  evt-{i}"
+        t = time.perf_counter()
+        rec = brain.analyze(raw)
+        dt = (time.perf_counter() - t) * 1000.0
+        v = rec.get("verdict", {})
+        gemma = [a for a in rec.get("agents", []) if a.get("source") in ("llm", "mock")]
+        return dt, len(gemma), bool(v.get("deterministic", True)), v.get("decision_engine", "—")
+
+    # Worst case: disable the verdict cache so every event runs the full pipeline
+    # (otherwise identical-shaped events would hit cache and hide real compute cost).
+    orig_get = _c13.get_verdict
+    if worst_case:
+        _c13.get_verdict = lambda finding: None
+    t0 = time.perf_counter()
+    try:
+        with ThreadPoolExecutor(max_workers=concurrency) as ex:
+            futs = [ex.submit(_one, i) for i in range(n)]
+            for f in as_completed(futs):
+                try:
+                    dt, g, det, eng = f.result()
+                    lat.append(dt)
+                    gemma_calls += g
+                    if det:
+                        deterministic += 1
+                    by_engine[eng] = by_engine.get(eng, 0) + 1
+                except Exception:  # noqa: BLE001
+                    errors += 1
+                _bump(jid)
+    finally:
+        if worst_case:
+            _c13.get_verdict = orig_get
+    wall = time.perf_counter() - t0
+    done = len(lat) or 1
+    eps = round(len(lat) / wall, 1) if wall else 0
+    _set(jid, summary={
+        "events": len(lat), "errors": errors, "wall_s": round(wall, 2),
+        "concurrency": concurrency, "worst_case": worst_case,
+        "throughput_eps": eps,
+        "per_hour": int(round(eps * 3600)),
+        "per_min": int(round(eps * 60)),
+        "p50_ms": _pct(lat, 50), "p95_ms": _pct(lat, 95), "p99_ms": _pct(lat, 99),
+        "gemma_calls": gemma_calls,
+        "gemma_per_event": round(gemma_calls / done, 3),
+        "deterministic_pct": round(100 * deterministic / done, 1),
+        "by_engine": by_engine,
     })
 
 
