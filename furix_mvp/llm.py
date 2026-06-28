@@ -77,6 +77,9 @@ class LLMResult(dict):
     completion_tokens: int = 0
     source: str = "llm"
     error: Optional[str] = None
+    system: str = ""        # the system prompt sent to the model
+    user: str = ""          # the user prompt sent to the model (DAL-redacted)
+    raw: str = ""           # the model's raw text response (pre-parse)
 
 
 def complete_json(system: str, user: str, *, max_tokens: Optional[int] = None,
@@ -113,6 +116,7 @@ def complete_json(system: str, user: str, *, max_tokens: Optional[int] = None,
                 r = LLMResult(obj)
                 r.latency_ms = int((time.time() - t0) * 1000)
                 r.error = err
+                r.system, r.user, r.raw = system, user, text
                 u = getattr(resp, "usage", None)
                 if u:
                     r.prompt_tokens = u.prompt_tokens or 0
@@ -125,6 +129,7 @@ def complete_json(system: str, user: str, *, max_tokens: Optional[int] = None,
     r = LLMResult()
     r.error = last_err; r.source = "fallback"
     r.latency_ms = int((time.time() - t0) * 1000)
+    r.system, r.user = system, user
     return r
 
 

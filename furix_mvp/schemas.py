@@ -17,8 +17,12 @@ class AgentResult(BaseModel):
     latency_ms: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
-    source: str = "llm"          # llm | mock | fallback
+    source: str = "llm"          # llm | mock | fallback | deterministic
     error: Optional[str] = None
+    # Transparency: the exact prompt the model received (DAL-redacted) and its raw
+    # response, so the UI can show clients precisely what went in and came out.
+    prompt: Optional[str] = None
+    raw: Optional[str] = None
 
 
 class Verdict(BaseModel):

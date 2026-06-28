@@ -15,10 +15,14 @@ from .schemas import AgentResult
 
 
 def _result(name: str, r: LLMResult, output: dict) -> AgentResult:
+    sys_p = getattr(r, "system", "") or ""
+    usr_p = getattr(r, "user", "") or ""
+    prompt = f"=== SYSTEM ===\n{sys_p}\n\n=== USER (what the model received — DAL-redacted) ===\n{usr_p}" if (sys_p or usr_p) else None
     return AgentResult(
         agent=name, ok=bool(output) and r.source != "fallback", output=output,
         latency_ms=r.latency_ms, prompt_tokens=r.prompt_tokens,
         completion_tokens=r.completion_tokens, source=r.source, error=r.error,
+        prompt=prompt, raw=getattr(r, "raw", "") or None,
     )
 
 
