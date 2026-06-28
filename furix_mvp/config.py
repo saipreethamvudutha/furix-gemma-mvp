@@ -17,6 +17,10 @@ GEMMA_API_KEY   = os.environ.get("GEMMA_API_KEY", "ollama")
 GEMMA_TIMEOUT   = float(os.environ.get("GEMMA_TIMEOUT", "120"))
 GEMMA_MAX_TOKENS    = int(os.environ.get("GEMMA_MAX_TOKENS", "1600"))
 GEMMA_TEMPERATURE   = float(os.environ.get("GEMMA_TEMPERATURE", "0.1"))
+# Force OpenAI response_format=json_object. Helps strict servers (vLLM), but some
+# Ollama+model combos (e.g. gemma4:e4b) return an EMPTY completion under it. OFF
+# by default: the prompts already mandate JSON and parse_json() recovers it.
+GEMMA_JSON_MODE = _bool("GEMMA_JSON_MODE", "0")
 MOCK_LLM        = _bool("MOCK_LLM")
 
 # DAL: enable HIPAA Safe Harbor redaction (SSN/phone/date/VIN/URL). Default OFF —

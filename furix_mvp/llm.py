@@ -94,14 +94,19 @@ def complete_json(system: str, user: str, *, max_tokens: Optional[int] = None,
     last_err = "unknown"
     for attempt in range(3):
         try:
-            resp = _client.chat.completions.create(
+            kwargs = dict(
                 model=config.GEMMA_MODEL,
                 messages=[{"role": "system", "content": system},
                           {"role": "user", "content": user}],
                 temperature=config.GEMMA_TEMPERATURE + attempt * 0.05,
                 max_tokens=max_tokens or config.GEMMA_MAX_TOKENS,
-                response_format={"type": "json_object"},
             )
+            # Forced JSON mode makes some Ollama+model combos return an EMPTY
+            # completion. Off by default — the prompts mandate JSON and
+            # parse_json() recovers it (fences, {...} extraction, repair).
+            if config.GEMMA_JSON_MODE:
+                kwargs["response_format"] = {"type": "json_object"}
+            resp = _client.chat.completions.create(**kwargs)
             text = (resp.choices[0].message.content or "").strip()
             obj, err = parse_json(text)
             if obj:
