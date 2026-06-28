@@ -135,13 +135,15 @@ def llm_assess_batch(req: AssessBatchRequest) -> dict:
     if not logs:
         return {"assessments": [], "count": 0, "error": "no logs supplied"}
     sys_p = ("You are a senior SOC analyst. You will receive several NUMBERED security log lines. "
-             "Assess EACH independently for malicious or suspicious activity, weighing source, actor, "
-             "geography, IP reputation, and action. Output ONE JSON object only: "
+             "Assess EACH independently for malicious or suspicious activity (weigh source, actor, "
+             "geography, IP reputation, and action), AND give one concrete remediation/containment "
+             "step for each. Output ONE JSON object only: "
              '{"assessments":[{"n":<line number>,"verdict":"malicious|suspicious|benign",'
-             '"severity":"critical|high|medium|low|informational","reasoning":"1 short sentence"}]} '
+             '"severity":"critical|high|medium|low|informational","reasoning":"1 short sentence",'
+             '"remediation":"1 concrete fix or containment step"}]} '
              "with exactly one entry per input line.")
     user = "\n".join(f"{i + 1}. {l[:600]}" for i, l in enumerate(logs))
-    r = llm.complete_json(sys_p, user, max_tokens=min(1600, 400 + 220 * len(logs)))
+    r = llm.complete_json(sys_p, user, max_tokens=min(2400, 500 + 320 * len(logs)))
     arr = r.get("assessments") if isinstance(r.get("assessments"), list) else []
     return {
         "assessments": arr, "count": len(logs),

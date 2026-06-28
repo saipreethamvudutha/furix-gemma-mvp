@@ -170,6 +170,17 @@
           <button class="primary" id="report-btn" onclick="generateReport()" style="display:none;background:#7c3aed">⚡ Generate AI Report (on-demand Gemma)</button>
           <div id="report-out" style="margin-top:10px"></div>
         </div>
+
+        <div class="card">
+          <h2>🤖 Batch-assess multiple logs with Gemma</h2>
+          <p style="font-size:11.5px;color:var(--mut);margin:0 0 8px">Queue several logs (one per line) and step through them in batches of 6 — each batch is ONE Gemma call returning a verdict + remediation per log.</p>
+          <textarea id="p-batch-input" style="min-height:90px" placeholder="Paste one log per line…"></textarea>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button class="primary" style="margin-top:0;background:#7c3aed" onclick="runPipelineBatch()">▶ Batch-assess with Gemma</button>
+            <button class="primary" style="margin-top:0;background:#1e293b" onclick="fillBatchSamples()">Fill with samples</button>
+          </div>
+          <div id="p-batch" style="margin-top:10px;display:none"></div>
+        </div>
       </div>
       <div>
         <div class="card">
@@ -754,6 +765,7 @@ function renderForge(j,force){
   const ben=rows.filter(r=>r.truth!=='malicious'&&r.truth!=='benign_suspicious');
   const disp=[...hot,...ben.slice(-25).reverse()].slice(0,90);
   window._forgeDisp=disp;
+  window._forgeFlagged=hot;   // ALL flagged events, for the paginated batch assessor
   let h=`<tr><th>Source</th><th>Ground truth</th><th>MITRE</th><th>Our severity</th><th>Decided by</th><th>Result</th><th>Raw log</th><th></th></tr>`;
   disp.forEach((r,i)=>{
     const tcol=r.truth==='malicious'?'#f87171':r.truth==='benign_suspicious'?'#fbbf24':'#8b97ab';
@@ -800,33 +812,72 @@ async function assessForge(i){
   }catch(e){panel.innerHTML=`<div class="callout warn">Failed: ${esc(e.message)}</div>`}
 }
 
-async function batchAssessForge(){
-  const hot=(window._forgeDisp||[]).filter(r=>r.truth==='malicious'||r.truth==='benign_suspicious').slice(0,6);
-  if(!hot.length){$('#f-err').textContent='No flagged events to assess yet — start the feed first.';return}
-  const panel=$('#f-assess');panel.style.display='block';panel.scrollIntoView({behavior:'smooth',block:'nearest'});
-  panel.innerHTML=`<div class="callout" style="background:#241a3a;border-color:#7c3aed">🤖 Sending <b>${hot.length}</b> flagged events to Gemma in <b>ONE</b> call… (~40–70s)</div>`;
+// ── Paginated batch assessor (shared by LogForge + Pipeline) ──
+const _BSIZE=6, _batch={};
+function startBatch(panelId,items){
+  if(!items||!items.length){return false}
+  _batch[panelId]={items,page:0,cache:{}};
+  showBatchPage(panelId);
+  return true;
+}
+async function showBatchPage(panelId){
+  const st=_batch[panelId];if(!st)return;
+  const panel=$('#'+panelId);panel.style.display='block';panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+  const total=Math.ceil(st.items.length/_BSIZE),start=st.page*_BSIZE;
+  const slice=st.items.slice(start,start+_BSIZE);
+  const header=`Batch ${st.page+1} of ${total} · events ${start+1}–${start+slice.length} of ${st.items.length} flagged`;
+  if(st.cache[st.page]){renderBatchPage(panelId,header,slice,st.cache[st.page]);return}
+  panel.innerHTML=`<div class="callout" style="background:#241a3a;border-color:#7c3aed">${esc(header)}<br>🤖 Sending ${slice.length} logs to Gemma in ONE call… (~40–80s)</div>`;
   try{
-    const r=await(await fetch('/api/llm-assess-batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({logs:hot.map(x=>x.raw)})})).json();
-    const a=r.assessments||[];
-    if(!a.length){panel.innerHTML=`<div class="callout warn">Gemma returned no assessments — ${esc(r.error||'fallback')} (source ${esc(r.source||'—')}).</div>`;return}
-    let trs='';
-    hot.forEach((h,idx)=>{
-      const v=a.find(x=>x&&x.n===idx+1)||a[idx]||{};
-      const caught=(v.verdict==='malicious')||(h.truth==='benign_suspicious'&&v.verdict&&v.verdict!=='benign');
-      trs+=`<tr>
-        <td style="font-size:10.5px"><span style="color:#f87171;font-weight:600">${esc(h.truth)}</span> ${esc(h.mitre||'')}</td>
-        <td><b style="color:#a78bfa">${esc(v.verdict||'?')}</b> · ${sev(v.severity)}</td>
-        <td><span class="pill ${caught?'route-det':'route-llm'}">${caught?'✓':'✗'}</span></td>
-        <td style="font-size:10.5px;color:var(--mut)">${esc(v.reasoning||'—')}</td></tr>`;
-    });
-    panel.innerHTML=`<div class="callout" style="background:#241a3a;border-color:#7c3aed">
-      <b>Batch assessment</b> — ${hot.length} events assessed in <b>ONE</b> Gemma call · <b>${r.latency_ms}ms total</b>
-      (≈${Math.round(r.latency_ms/hot.length)}ms/event). Sent separately that would be ${hot.length} round-trips.
-      <table style="margin-top:8px"><tr><th>Ground truth</th><th>Gemma verdict</th><th></th><th>Reasoning</th></tr>${trs}</table>
-      <details style="margin-top:8px"><summary style="cursor:pointer;color:var(--acc);font-size:11.5px">▸ Show the exact prompt sent to Gemma</summary>
-        <pre style="white-space:pre-wrap;word-break:break-word;background:#0b0f17;border:1px solid var(--line);border-radius:6px;padding:8px;max-height:240px;overflow:auto;font-size:10.5px;color:#cbd5e1">${esc(r.prompt||'—')}</pre></details>
-    </div>`;
+    const r=await(await fetch('/api/llm-assess-batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({logs:slice.map(x=>x.raw)})})).json();
+    st.cache[st.page]=r;renderBatchPage(panelId,header,slice,r);
   }catch(e){panel.innerHTML=`<div class="callout warn">Failed: ${esc(e.message)}</div>`}
+}
+function renderBatchPage(panelId,header,slice,r){
+  const st=_batch[panelId],total=Math.ceil(st.items.length/_BSIZE);
+  const a=r.assessments||[];
+  if(!a.length){$('#'+panelId).innerHTML=`<div class="callout warn">${esc(header)} — Gemma returned no assessments (${esc(r.error||'fallback')}).</div>`;return}
+  let trs='';
+  slice.forEach((h,idx)=>{
+    const v=a.find(x=>x&&x.n===idx+1)||a[idx]||{};
+    const label=esc(h.source||h.label||('log '+ (idx+1)));
+    const truthCell=h.truth?`<div style="color:#f87171;font-size:10px">truth: ${esc(h.truth)}${h.mitre?' · '+esc(h.mitre):''}</div>`:'';
+    const caught=h.truth?((v.verdict==='malicious')||(h.truth==='benign_suspicious'&&v.verdict&&v.verdict!=='benign')):null;
+    const flag=caught===null?'':`<span class="pill ${caught?'route-det':'route-llm'}">${caught?'✓':'✗'}</span>`;
+    trs+=`<tr>
+      <td style="font-size:10.5px">${label}${truthCell}</td>
+      <td><b style="color:#a78bfa">${esc(v.verdict||'?')}</b> · ${sev(v.severity)} ${flag}</td>
+      <td style="font-size:10.5px;color:#cbd5e1">${esc(v.remediation||v.reasoning||'—')}</td></tr>`;
+  });
+  let dots='';for(let i=0;i<total;i++)dots+=`<span style="color:${i<=st.page?'#a78bfa':'#334155'};font-size:14px">●</span>`;
+  $('#'+panelId).innerHTML=`<div class="callout" style="background:#241a3a;border-color:#7c3aed">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <b>${esc(header)}</b><span style="color:var(--mut);font-size:11px">one Gemma call · ${r.latency_ms}ms</span>
+      <span style="margin-left:auto">${dots}</span></div>
+    <table style="margin-top:8px"><tr><th>Event</th><th>Gemma verdict</th><th>Remediation step</th></tr>${trs}</table>
+    <div style="margin-top:10px;display:flex;gap:8px">
+      <button class="run" style="padding:6px 12px;background:${st.page<=0?'#1e293b':'#334155'}" ${st.page<=0?'disabled':''} onclick="batchNav('${panelId}',-1)">← Prev</button>
+      <button class="run" style="padding:6px 12px" ${st.page>=total-1?'disabled':''} onclick="batchNav('${panelId}',1)">Next batch →</button>
+    </div></div>`;
+}
+function batchNav(panelId,d){const st=_batch[panelId];if(!st)return;const total=Math.ceil(st.items.length/_BSIZE);const p=st.page+d;if(p>=0&&p<total){st.page=p;showBatchPage(panelId)}}
+
+function batchAssessForge(){
+  const hot=window._forgeFlagged||[];
+  if(!hot.length){$('#f-err').textContent='No flagged events yet — start the feed first.';return}
+  startBatch('f-assess',hot.map(r=>({raw:r.raw,source:r.source,truth:r.truth,mitre:r.mitre})));
+}
+
+/* ── Pipeline tab: batch-assess multiple pasted logs ── */
+function fillBatchSamples(){
+  fetch('/api/samples').then(r=>r.json()).then(({samples})=>{
+    $('#p-batch-input').value=Object.values(samples).slice(0,6).map(s=>String(s).replace(/\n/g,' ').slice(0,400)).join('\n');
+  }).catch(()=>{});
+}
+function runPipelineBatch(){
+  const lines=$('#p-batch-input').value.split('\n').map(l=>l.trim()).filter(Boolean);
+  if(!lines.length){return}
+  startBatch('p-batch',lines.map((l,i)=>({raw:l,label:'log '+(i+1)})));
 }
 
 buildPipeline();loadSamples();loadHealth();
