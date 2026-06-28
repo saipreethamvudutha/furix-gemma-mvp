@@ -111,7 +111,9 @@ def llm_assess(req: AssessRequest) -> dict:
              "reputation, and action. Output ONE JSON object only: "
              '{"verdict":"malicious|suspicious|benign","severity":'
              '"critical|high|medium|low|informational","reasoning":"1-2 sentences"}.')
-    r = llm.complete_json(sys_p, (req.raw_log or "")[:4000], max_tokens=300)
+    # NOTE: keep max_tokens high — gemma4:e4b returns an EMPTY completion at low
+    # budgets (≤500), even for a short JSON answer (same issue as the narrative agents).
+    r = llm.complete_json(sys_p, (req.raw_log or "")[:4000], max_tokens=800)
     return {
         "verdict": r.get("verdict"), "severity": r.get("severity"),
         "reasoning": r.get("reasoning"),
