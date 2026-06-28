@@ -110,7 +110,7 @@ def run_remediation_generator(finding: dict, mapping: dict,
             "containment": ["Block source IP at the firewall."]}
     r = complete_json(prompts.REMEDIATION_SYS,
                       prompts.remediation_user(finding, mapping, rag),
-                      max_tokens=700, mock=mock)
+                      max_tokens=400, mock=mock)
     return _result("remediation_generator", r, dict(r))
 
 
@@ -142,5 +142,5 @@ def run_report_generator(finding: dict, agent_outputs: dict) -> AgentResult:
             "attack_narrative": "", "business_impact": "",
             "remediation_roadmap": "", "compliance_posture": ""}
     r = complete_json(prompts.REPORT_SYS, prompts.report_user(finding, agent_outputs),
-                      max_tokens=900, mock=mock)
+                      max_tokens=500, mock=mock)
     return _result("report_generator", r, dict(r))
