@@ -182,7 +182,7 @@ def llm_assess_batch(req: AssessBatchRequest) -> dict:
 # ── Analysis ──────────────────────────────────────────────────────────────────
 @app.post("/api/analyze")
 def analyze(req: AnalyzeRequest) -> dict:
-    record = brain.analyze(req.raw_log, req.log_type, req.agents)
+    record = brain.analyze(req.raw_log, req.log_type, req.agents, force_llm=req.force_llm)
     _persist(record)
     return record
 

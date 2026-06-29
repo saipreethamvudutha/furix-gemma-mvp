@@ -133,7 +133,8 @@ def _ground(redacted: str, finding: dict) -> dict:
 
 
 def _run_agents(finding: dict, ground: dict, enabled: list[str],
-                comp_map: dict, explicit: bool = False) -> tuple[list, dict, list]:
+                comp_map: dict, explicit: bool = False,
+                force_llm: bool = False) -> tuple[list, dict, list]:
     """Run the agents respecting dependencies + the parallel toggle.
 
     `comp_map` is the already-resolved DETERMINISTIC compliance mapping. The
@@ -146,9 +147,9 @@ def _run_agents(finding: dict, ground: dict, enabled: list[str],
     skipped: list[str] = []
 
     def _run(name):
-        if name == "risk_scorer":        return agents.run_risk_scorer(finding, ground)
+        if name == "risk_scorer":        return agents.run_risk_scorer(finding, ground, force_llm=force_llm)
         if name == "compliance_mapper":  return agents.run_compliance_mapper(finding, ground)
-        if name == "anomaly_detector":   return agents.run_anomaly_detector(finding, ground)
+        if name == "anomaly_detector":   return agents.run_anomaly_detector(finding, ground, force_llm=force_llm)
         return None
 
     # Independent agents → run together (this is where concurrency buys latency).
@@ -168,7 +169,7 @@ def _run_agents(finding: dict, ground: dict, enabled: list[str],
     # Narrative is ON-DEMAND by default: it runs only when the caller explicitly
     # asks (analyst clicks "generate report"), or when NARRATIVE_AUTO is enabled.
     # This keeps routine detection fully deterministic — zero Gemma calls.
-    run_narrative = explicit or (config.NARRATIVE_AUTO and config.severity_meets(severity))
+    run_narrative = explicit or force_llm or (config.NARRATIVE_AUTO and config.severity_meets(severity))
 
     if "remediation_generator" in enabled:
         if run_narrative:
@@ -189,11 +190,17 @@ def _run_agents(finding: dict, ground: dict, enabled: list[str],
 
 
 def analyze(raw_log: str, log_type: str = "auto",
-            want_agents: list[str] | None = None) -> dict:
+            want_agents: list[str] | None = None, force_llm: bool = False) -> dict:
     """Analyse ONE event end to end. Pure: returns the record, does not persist.
-    Callers persist exactly once (API directly, or C8 from the bus)."""
+    Callers persist exactly once (API directly, or C8 from the bus).
+
+    force_llm: 'Full AI analysis' mode — run ALL 5 agents through Gemma (override
+    deterministic scoring + run narrative + keep the compliance LLM mapper), so
+    every agent makes a real model call. For demo/validation, not the default path."""
     t0 = time.time()
-    enabled = want_agents or config.enabled_agents()
+    enabled = list(want_agents) if want_agents else list(config.enabled_agents())
+    if force_llm:                       # run the whole panel through the model
+        enabled = list(config.ALL_AGENTS)
     dal = DAL()
 
     # 1. Deterministic triage (C6) on RAW; then redact for the model.
@@ -206,7 +213,7 @@ def analyze(raw_log: str, log_type: str = "auto",
     #    clicked "Generate AI Report") — they want fresh narrative, not a cached
     #    deterministic verdict that never ran the requested Gemma agents.
     explicit = want_agents is not None
-    cached = None if explicit else cache.get_verdict(finding)
+    cached = None if (explicit or force_llm) else cache.get_verdict(finding)
     if cached:
         return {"finding_id": _finding_id(raw_log), "log_type": finding["log_type"],
                 "finding": dal.rehydrate_obj(finding), "verdict": cached, "agents": [],
@@ -228,7 +235,7 @@ def analyze(raw_log: str, log_type: str = "auto",
     det_map = mapping.resolve(finding, ground)
     enabled = list(enabled)
     use_llm_mapper = det_map["needs_llm"] and config.COMPLIANCE_LLM_FALLBACK
-    if "compliance_mapper" in enabled and not use_llm_mapper:
+    if "compliance_mapper" in enabled and not use_llm_mapper and not force_llm:
         enabled.remove("compliance_mapper")
     if use_llm_mapper:
         ops.incr("compliance_llm_fallback_total")
@@ -239,7 +246,7 @@ def analyze(raw_log: str, log_type: str = "auto",
     #    agents (e.g. analyst clicked "generate remediation"), so always run them.
     explicit = want_agents is not None
     with ops.timer("ai_brain_agents_latency"):
-        results, outputs, narrative_skipped = _run_agents(finding, ground, enabled, det_map, explicit)
+        results, outputs, narrative_skipped = _run_agents(finding, ground, enabled, det_map, explicit, force_llm=force_llm)
     ops.incr("ai_brain_analyses_total")
 
     # 4b. Settle the compliance mapping: deterministic stands as-is; for the

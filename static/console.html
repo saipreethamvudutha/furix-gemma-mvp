@@ -162,6 +162,8 @@
           <label style="margin-top:10px">Raw log</label>
           <textarea id="log-input" placeholder="Paste a raw security log / event…"></textarea>
           <button class="primary" id="run-btn" onclick="runDemo()">▶ Run Pipeline Demo</button>
+          <button class="primary" id="run-full-btn" style="background:#7c3aed" onclick="runDemo(true)">🧠 Full AI analysis — all 5 agents via Gemma</button>
+          <div style="font-size:10.5px;color:var(--mut);margin-top:4px">Normal run = deterministic where possible (fast, ~0 model calls). Full AI = forces every agent through Gemma (~5 calls, slow) so you can see each one fire.</div>
           <div class="err" id="err-msg"></div>
         </div>
         <div class="card" id="v-card">
@@ -427,20 +429,21 @@ async function loadSamples(){
     if(sel.options[0])$('#log-input').value=samples[sel.options[0].value];
   }catch(e){}
 }
-async function runDemo(){
+async function runDemo(forceLLM){
   const raw=$('#log-input').value.trim();if(!raw)return;
-  const btn=$('#run-btn'),errEl=$('#err-msg');
-  btn.disabled=true;btn.textContent='⏳ Analyzing…';errEl.textContent='';
+  const btn=$('#run-btn'),fbtn=$('#run-full-btn'),errEl=$('#err-msg');
+  btn.disabled=true;if(fbtn)fbtn.disabled=true;
+  btn.textContent=forceLLM?'⏳ Full AI analysis (5 Gemma calls, ~3 min)…':'⏳ Analyzing…';errEl.textContent='';
   STAGES.forEach(s=>{setState(s.id,'idle');fill(s.id,`<span style="color:var(--mut)">${esc(s.desc)}</span>`)});
   $('#v-card').style.display='none';
   setState('s1','active');
-  fill('s1',row('source','api / dashboard')+row('raw log',`<span style="font-size:11px">${esc(raw.slice(0,140))}${raw.length>140?'…':''}</span>`));
+  fill('s1',row('source','api / dashboard')+row('mode',forceLLM?'<span style="color:var(--warn)">FULL AI — all 5 agents via Gemma</span>':'<span style="color:var(--mut)">normal — deterministic where possible</span>')+row('raw log',`<span style="font-size:11px">${esc(raw.slice(0,140))}${raw.length>140?'…':''}</span>`));
   const t0=performance.now();let result;
   try{
-    const resp=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({raw_log:raw})});
+    const resp=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({raw_log:raw,force_llm:!!forceLLM})});
     if(!resp.ok)throw new Error('HTTP '+resp.status+': '+await resp.text());
     result=await resp.json();
-  }catch(e){errEl.textContent='Analysis failed: '+e.message;setState('s1','idle');btn.disabled=false;btn.textContent='▶ Run Pipeline Demo';return}
+  }catch(e){errEl.textContent='Analysis failed: '+e.message;setState('s1','idle');btn.disabled=false;if(fbtn)fbtn.disabled=false;btn.textContent='▶ Run Pipeline Demo';return}
   const wall=Math.round(performance.now()-t0);
   const f=result.finding||{},v=result.verdict||{},ents=f.entities||{},dal=result.dal||{},rag=result.rag||{};
   const agArr=result.agents||[];const agMap={};agArr.forEach(a=>{agMap[a.agent]=a});
@@ -520,7 +523,8 @@ async function runDemo(){
   const rb=$('#report-btn');
   rb.style.display='block';rb.disabled=false;rb.textContent='⚡ Generate AI Report (on-demand Gemma)';
   $('#v-card').style.display='block';
-  btn.disabled=false;btn.textContent='▶ Run Again';
+  btn.disabled=false;btn.textContent='▶ Run Pipeline Demo';
+  const fb=$('#run-full-btn');if(fb)fb.disabled=false;
 }
 
 // On-demand narrative: the ONLY way the heavy Remediation+Report Gemma calls run.

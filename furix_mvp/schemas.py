@@ -8,6 +8,7 @@ class AnalyzeRequest(BaseModel):
     raw_log: str = Field(..., description="Raw security log/event text to analyze")
     log_type: str = Field("auto", description="Optional hint; 'auto' to let the model detect")
     agents: Optional[list[str]] = Field(None, description="Subset of agents; null = all enabled")
+    force_llm: bool = Field(False, description="Full AI analysis: run ALL 5 agents through Gemma (override deterministic + narrative)")
 
 
 class AgentResult(BaseModel):

@@ -56,11 +56,12 @@ def _mock_severity(sig: dict) -> tuple[str, int]:
     return ("low", 20) if not any(sig.values()) else ("medium", 45)
 
 
-def run_risk_scorer(finding: dict, rag: dict | None = None) -> AgentResult:
+def run_risk_scorer(finding: dict, rag: dict | None = None, force_llm: bool = False) -> AgentResult:
     sig = finding.get("signals", {})
     sev, score = _mock_severity(sig)
     # DETERMINISTIC mode: severity comes from the signal logic above — no Gemma call.
-    if config.DETERMINISTIC_SCORING:
+    # force_llm overrides it (Full AI analysis mode) so the agent really calls Gemma.
+    if config.DETERMINISTIC_SCORING and not force_llm:
         return _det_result("risk_scorer", {
             "severity": sev, "risk_score": score, "confidence": 0.9,
             "rationale": "Deterministic signal-based score (no LLM).",
@@ -68,7 +69,7 @@ def run_risk_scorer(finding: dict, rag: dict | None = None) -> AgentResult:
     mock = {"severity": sev, "risk_score": score, "confidence": 0.6,
             "rationale": "Mock score (offline).", "top_factors": [k for k, v in sig.items() if v][:3]}
     r = complete_json(prompts.RISK_SYS, prompts.risk_user(finding, rag),
-                      max_tokens=400, mock=mock)
+                      max_tokens=600, mock=mock)
     out = dict(r)
     if out:
         out["severity"] = _clamp_sev(out.get("severity"))
@@ -119,12 +120,13 @@ def run_remediation_generator(finding: dict, mapping: dict,
 
 
 # ── 4. Anomaly Detector ──────────────────────────────────────────────────────
-def run_anomaly_detector(finding: dict, rag: dict | None = None) -> AgentResult:
+def run_anomaly_detector(finding: dict, rag: dict | None = None, force_llm: bool = False) -> AgentResult:
     sig = finding.get("signals", {})
     anom = any(sig.get(k) for k in ("malware", "c2_or_exfil",
                                     "lateral_movement", "account_creation"))
     # DETERMINISTIC mode: anomaly comes from the signal fingerprint — no Gemma call.
-    if config.DETERMINISTIC_SCORING:
+    # force_llm overrides it (Full AI analysis mode) so the agent really calls Gemma.
+    if config.DETERMINISTIC_SCORING and not force_llm:
         return _det_result("anomaly_detector", {
             "is_anomaly": bool(anom), "anomaly_type": "process" if anom else "none",
             "confidence": 0.9, "explanation": "Deterministic signal-based assessment (no LLM).",
@@ -133,7 +135,7 @@ def run_anomaly_detector(finding: dict, rag: dict | None = None) -> AgentResult:
             "confidence": 0.6, "explanation": "Mock anomaly assessment.",
             "indicators": [k for k, v in sig.items() if v][:3]}
     r = complete_json(prompts.ANOMALY_SYS, prompts.anomaly_user(finding, rag),
-                      max_tokens=400, mock=mock)
+                      max_tokens=500, mock=mock)
     out = dict(r)
     if out:
         out["is_anomaly"] = bool(out.get("is_anomaly"))
