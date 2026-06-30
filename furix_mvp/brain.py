@@ -47,6 +47,8 @@ def _siem_rule(sig: dict, ioc_hits: list) -> str | None:
         return "privilege_escalation"
     if sig.get("account_creation"):
         return "unauthorized_account"
+    if sig.get("foreign_geo") and (sig.get("successful_logins") or sig.get("failed_logins")):
+        return "suspicious_geo_auth"
     return None
 
 

@@ -41,9 +41,13 @@ def _clamp_sev(sev: str) -> str:
 # ── 1. Risk Scorer ───────────────────────────────────────────────────────────
 def _mock_severity(sig: dict) -> tuple[str, int]:
     benign = sig.get("successful_logins") and not any(
-        sig.get(k) for k in ("malware", "c2_or_exfil", "account_creation", "lateral_movement"))
+        sig.get(k) for k in ("malware", "c2_or_exfil", "account_creation",
+                             "lateral_movement", "foreign_geo"))
     if sig.get("malware") or sig.get("c2_or_exfil"):
         return "critical", 90
+    # Auth from a high-risk geography = likely compromised credentials (T1078.004).
+    if sig.get("foreign_geo") and (sig.get("successful_logins") or sig.get("failed_logins")):
+        return "high", 74
     if sig.get("account_creation") or sig.get("lateral_movement"):
         return "high", 72
     if benign:
@@ -122,8 +126,8 @@ def run_remediation_generator(finding: dict, mapping: dict,
 # ── 4. Anomaly Detector ──────────────────────────────────────────────────────
 def run_anomaly_detector(finding: dict, rag: dict | None = None, force_llm: bool = False) -> AgentResult:
     sig = finding.get("signals", {})
-    anom = any(sig.get(k) for k in ("malware", "c2_or_exfil",
-                                    "lateral_movement", "account_creation"))
+    anom = any(sig.get(k) for k in ("malware", "c2_or_exfil", "lateral_movement",
+                                    "account_creation", "foreign_geo"))
     # DETERMINISTIC mode: anomaly comes from the signal fingerprint — no Gemma call.
     # force_llm overrides it (Full AI analysis mode) so the agent really calls Gemma.
     if config.DETERMINISTIC_SCORING and not force_llm:

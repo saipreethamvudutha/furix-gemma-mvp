@@ -34,6 +34,8 @@ def _rule_c2(e):       return e["signals"].get("c2_or_exfil") or e["intel"]["ioc
 def _rule_brute(e):    return e["signals"].get("failed_logins") and e["signals"].get("successful_logins")
 def _rule_priv(e):     return e["signals"].get("privilege_escalation")
 def _rule_newadmin(e): return e["signals"].get("account_creation")
+def _rule_geo(e):      return e["signals"].get("foreign_geo") and (
+                              e["signals"].get("successful_logins") or e["signals"].get("failed_logins"))
 
 RULES = [
     ("malware_execution",      _rule_malware, "critical"),
@@ -41,6 +43,7 @@ RULES = [
     ("brute_force_success",    _rule_brute,   "high"),
     ("privilege_escalation",   _rule_priv,    "high"),
     ("unauthorized_account",   _rule_newadmin,"high"),
+    ("suspicious_geo_auth",    _rule_geo,     "high"),
 ]
 
 

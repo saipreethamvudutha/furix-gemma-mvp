@@ -446,8 +446,7 @@ def _forge(jid: str, params: dict) -> None:
     feed = mal + sus + ben
     _set(jid, total=len(feed))
 
-    tp = fn = fp = tn = sus_alert = 0
-    rows = []
+    events = []
     for l in feed:
         if _cancelled(jid):
             break
@@ -455,39 +454,77 @@ def _forge(jid: str, params: dict) -> None:
         v = rec.get("verdict", {})
         sev = v.get("severity")
         alerted = sev in ("critical", "high") or bool(v.get("is_anomaly"))
-        truth = _label(l)
-        if truth == "malicious":
-            if alerted:
-                tp += 1; outcome = "TP"
-            else:
-                fn += 1; outcome = "FN"
-        elif truth == "benign":
-            if alerted:
-                fp += 1; outcome = "FP"
-            else:
-                tn += 1; outcome = "TN"
-        elif truth == "benign_suspicious":
-            sus_alert += 1 if alerted else 0
-            outcome = "SUS-alert" if alerted else "SUS-quiet"
-        else:
-            outcome = "—"
-        rows.append({
-            "source": l["source"], "truth": truth, "mitre": _tech(l),
+        events.append({
+            "source": l["source"], "truth": _label(l), "mitre": _tech(l),
             "severity": sev, "decided_by": v.get("decision_engine", "—"),
-            "alerted": alerted, "outcome": outcome, "raw": l["raw"][:1500],
+            "alerted": alerted, "corr": _corr_ids(l["raw"]), "raw": l["raw"][:1500],
         })
-        prec = tp / (tp + fp) if (tp + fp) else 0.0
-        recall = tp / (tp + fn) if (tp + fn) else 0.0
-        with _LOCK:
-            if jid in _JOBS:
-                _JOBS[jid]["rows"] = rows[-150:]      # keep the most recent for display
-                _JOBS[jid]["summary"] = {
-                    "bundle": bundle, "fed": len(rows),
-                    "malicious": len(mal), "suspicious": len(sus), "benign": min(len(ben), limit),
-                    "tp": tp, "fn": fn, "fp": fp, "tn": tn, "sus_alert": sus_alert,
-                    "precision": round(prec, 2), "recall": round(recall, 2),
-                    "total_logs": len(logs),
-                }
+        _score_forge(jid, events, bundle, mal, sus, ben, len(logs), final=False)
         _bump(jid)
         if delay_ms:
             time.sleep(delay_ms / 1000.0)
+    _score_forge(jid, events, bundle, mal, sus, ben, len(logs), final=True)
+
+
+# Shared correlation ids logforge stamps across an attack arc (an event "story"
+# spans many sources that share these). Extracting them lets ONE detected event
+# pull its whole campaign in — single-log detection alone misses the rest.
+_CORR_RE = re.compile(r'(?:correlation_id|correlationid|session_id|sessionid)["\s:=]{1,4}"?([0-9a-fA-F][0-9a-fA-F\-]{7,})')
+
+
+def _corr_ids(raw: str) -> set:
+    return {m.lower() for m in _CORR_RE.findall(raw or "")}
+
+
+def _score_forge(jid, events, bundle, mal, sus, ben, total_logs, final):
+    """Score the fed events against ground truth, with CORRELATION: any event that
+    shares a correlation/session id with an alerted event is treated as detected
+    (campaign linkage). Reports both single-log recall and correlated recall."""
+    # 1. "Hot" correlation groups = ids that appear on any alerted event.
+    hot = set()
+    for e in events:
+        if e["alerted"]:
+            hot |= e["corr"]
+    tp = fn = fp = tn = sus_alert = tp_single = via = 0
+    rows = []
+    for e in events:
+        truth = e["truth"]
+        by_corr = (not e["alerted"]) and bool(e["corr"] & hot)
+        detected = e["alerted"] or by_corr
+        if truth == "malicious":
+            if e["alerted"]:
+                tp_single += 1
+            if detected:
+                tp += 1; outcome = "TP" + (" · corr" if by_corr else "")
+                via += 1 if by_corr else 0
+            else:
+                fn += 1; outcome = "FN"
+        elif truth == "benign":
+            if detected:
+                fp += 1; outcome = "FP" + (" · corr" if by_corr else "")
+            else:
+                tn += 1; outcome = "TN"
+        elif truth == "benign_suspicious":
+            sus_alert += 1 if detected else 0
+            outcome = "SUS-alert" if detected else "SUS-quiet"
+        else:
+            outcome = "—"
+        rows.append({
+            "source": e["source"], "truth": truth, "mitre": e["mitre"],
+            "severity": e["severity"], "decided_by": e["decided_by"],
+            "alerted": e["alerted"], "via_corr": by_corr, "outcome": outcome,
+            "raw": e["raw"],
+        })
+    nmal = len(mal) or 1
+    with _LOCK:
+        if jid in _JOBS:
+            _JOBS[jid]["rows"] = rows[-150:]
+            _JOBS[jid]["summary"] = {
+                "bundle": bundle, "fed": len(events),
+                "malicious": len(mal), "suspicious": len(sus), "benign": min(len(ben), 999999),
+                "tp": tp, "fn": fn, "fp": fp, "tn": tn, "sus_alert": sus_alert,
+                "precision": round(tp / (tp + fp), 2) if (tp + fp) else 0.0,
+                "recall": round(tp / nmal, 2), "recall_single": round(tp_single / nmal, 2),
+                "caught_via_corr": via, "hot_groups": len(hot),
+                "total_logs": total_logs, "final": final,
+            }

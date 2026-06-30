@@ -61,7 +61,11 @@ SIG = {
     "account_creation":     r"\buseradd\b|net user .*\/add|createuser|new[- ]?localuser|\b4720\b|provision\.?user|add member to role|createaccesskey|createserviceaccount|\bbackdoor\b",
     "lateral_movement":     r"lateral movement|psexec|netbios|\b3389\b|\bsmb\b|eternalblue",
     "failed_logins":        r"failed password|invalid user|\b4625\b|res=failed|authentication_failed",
-    "successful_logins":    r"accepted publickey|consolelogin.{0,30}success|loggedin|aaa user authentication successful",
+    "successful_logins":    r"accepted publickey|consolelogin.{0,30}success|loggedin|aaa user authentication successful|sso_signin|user\.session\.start|sign-?in|result.{0,8}success|outcome.{0,12}success|\b4624\b",
+    # Authentication from a high-risk geography — a strong single-log indicator of
+    # compromised credentials (MITRE T1078.004). Matches native fields like
+    # Okta/Entra  "geo": "RU"  /  geo=CN. Used by the suspicious_geo_auth rule.
+    "foreign_geo":          r'geo["\s:=]{1,4}"?(ru|cn|kp|ir|by|sy|ng)\b',
 }
 
 # ── Stage-1 entity extraction (kept RAW; DAL redaction happens later in C14) ──

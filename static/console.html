@@ -779,17 +779,22 @@ function renderForge(j,force){
   $('#f-pcount').textContent=`${j.progress}/${j.total} events`;
   const s=j.summary;if(!s)return;
   const recPct=Math.round((s.recall||0)*100),prePct=Math.round((s.precision||0)*100);
+  const recSingle=Math.round((s.recall_single||0)*100);
   $('#f-kpis').innerHTML=`
     <div class="kpi"><div class="k">Fed</div><div class="v a">${s.fed}</div></div>
     <div class="kpi"><div class="k">Malicious caught</div><div class="v g">${s.tp}</div></div>
     <div class="kpi"><div class="k">Malicious missed</div><div class="v ${s.fn?'r':'g'}">${s.fn}</div></div>
     <div class="kpi"><div class="k">False alarms</div><div class="v ${s.fp?'w':'g'}">${s.fp}</div></div>
-    <div class="kpi"><div class="k">Recall</div><div class="v ${recPct>=50?'g':'r'}">${recPct}%</div></div>
+    <div class="kpi"><div class="k">Recall · single-log</div><div class="v ${recSingle>=50?'g':'w'}">${recSingle}%</div></div>
+    <div class="kpi"><div class="k">Recall · correlated</div><div class="v ${recPct>=50?'g':'r'}">${recPct}%</div></div>
+    <div class="kpi"><div class="k">Caught via correlation</div><div class="v p">${s.caught_via_corr||0}</div></div>
     <div class="kpi"><div class="k">Precision</div><div class="v">${prePct}%</div></div>`;
   $('#f-callout').innerHTML=`Bundle has <b>${s.total_logs}</b> logs; feeding <b>${s.malicious}</b> malicious,
-    <b>${s.suspicious}</b> suspicious, <b>${s.benign}</b> benign sample. Caught <b>${s.tp}</b> of
-    <b>${s.malicious}</b> malicious (recall ${recPct}%) with <b>${s.fp}</b> false alarms. Missed events are
-    typically subtle multi-step campaign steps that need cross-log correlation (roadmap).`;
+    <b>${s.suspicious}</b> suspicious, <b>${s.benign}</b> benign sample.
+    Single-log detection caught <b>${recSingle}%</b> of attacks; <b>correlation lifts it to ${recPct}%</b> by pulling in
+    <b>${s.caught_via_corr||0}</b> event(s) that share a <code>correlation_id</code>/<code>session_id</code> with a detected
+    one (campaign linkage across <b>${s.hot_groups||0}</b> hot group(s)). Precision ${prePct}% · <b>${s.fp}</b> false alarms.
+    <div style="color:var(--mut);font-size:11.5px;margin-top:6px">Rows marked <b style="color:#a78bfa">· corr</b> were caught because another event in their campaign was detected — not the single line alone.</div>`;
   // Freeze the table while the user's mouse is over it (so the 0.7s poll re-render
   // doesn't destroy the button they're about to click). A forced render (feed
   // done) always rebuilds.
@@ -805,7 +810,7 @@ function renderForge(j,force){
   let h=`<tr><th>Source</th><th>Ground truth</th><th>MITRE</th><th>Our severity</th><th>Decided by</th><th>Result</th><th>Raw log</th><th></th></tr>`;
   disp.forEach((r,i)=>{
     const tcol=r.truth==='malicious'?'#f87171':r.truth==='benign_suspicious'?'#fbbf24':'#8b97ab';
-    const oc=r.outcome,ocCol=oc==='TP'?'#34d399':oc==='FN'?'#f87171':oc==='FP'?'#fbbf24':'#8b97ab';
+    const oc=r.outcome||'',ocCol=oc.startsWith('TP')?'#34d399':oc==='FN'?'#f87171':oc.startsWith('FP')?'#fbbf24':'#8b97ab';
     const ask=(r.truth==='malicious'||r.truth==='benign_suspicious')
       ?`<button onclick="assessForge(${i})" style="cursor:pointer;background:#241a3a;color:#a78bfa;border:1px solid #7c3aed;border-radius:6px;padding:3px 8px;font-size:10.5px;white-space:nowrap">🤖 Ask Gemma</button>`:'';
     h+=`<tr>
